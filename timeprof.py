@@ -3,6 +3,7 @@ import numpy as np
 import random
 
 #TODO Let Activity be called Tag?
+#TODO Add ability to specify in which time interval you want to get percentages
 
 class Activity:
     def __init__(self, tag, mean_duration):
