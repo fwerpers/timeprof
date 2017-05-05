@@ -2,8 +2,7 @@ import datetime
 import numpy as np
 import random
 
-#TODO Change name from Task to TimeSlot
-#TODO Create Activity class with tag and mean duration
+#TODO Let Activity be called Tag?
 
 class Activity:
     def __init__(self, tag, mean_duration):
