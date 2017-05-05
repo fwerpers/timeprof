@@ -86,6 +86,7 @@ class TimeSlot:
         self.duration = end-start
 
 def main():
+    """ Example usage """
     start = datetime.datetime.now()
     duration = datetime.timedelta(1,0,0)
     end = start + duration
