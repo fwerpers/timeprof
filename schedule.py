@@ -75,7 +75,7 @@ class RandomSchedule:
         time (datetime.datetime)
         """
         i = 0;
-        while (self.timeslot_list[i].start < time):
+        while (self.timeslot_list[i].end < time):
             i += 1
 
         return(self.timeslot_list[i].activity.tag)
