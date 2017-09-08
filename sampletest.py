@@ -33,7 +33,19 @@ def wilson_score_interval(tags, tag):
     interval_term = z*np.sqrt(p*(1-p)/N+z**2/(4*N**2))
     low = factor*(base_term - interval_term)
     high = factor*(base_term + interval_term)
-    res = np.array([low, high])
+    res = np.array([low, p, high])
+    print(res)
+
+def population_proportion(tags, tag):
+    N = float(len(tags))
+    n = float(np.sum(tags == tag))
+    z = 1.96 # 95% confidence interval
+    p = n/N
+    interval_term = z*np.sqrt(p*(1-p)/N)
+    low = p - interval_term
+    high = p + interval_term
+    res = np.array([low, p, high])
+    #res = np.array([interval_term, interval_term])
     print(res)
 
 def gamma_tom_jack(tags, tag):
@@ -119,6 +131,7 @@ def main():
 
     tag = 'poop'
     wilson_score_interval(tags, tag)
+    population_proportion(tags, tag)
     gamma_tom_jack(tags, tag)
     gamma_daniel_reeves(tags, tag)
     gamma_brute(tags, tag)
