@@ -20,7 +20,7 @@ class Activity:
         duration = datetime.timedelta(0, minutes*60, 0)
         return(duration)
 
-class TimeSlot:
+class _TimeSlot:
     def __init__(self, start, end, activity):
         """Create task from:
         start -- start time (datetime.datetime)
@@ -43,7 +43,7 @@ class RandomSchedule:
         """
         timeslot_list = []
         rand_activity = random.choice(activities)
-        new_timeslot = TimeSlot(
+        new_timeslot = _TimeSlot(
             start,
             start + rand_activity.get_random_duration(),
             rand_activity
@@ -52,7 +52,7 @@ class RandomSchedule:
         while (timeslot_list[-1].end < end):
             last_timeslot = timeslot_list[-1]
             rand_activity = random.choice(activities)
-            new_timeslot = TimeSlot(
+            new_timeslot = _TimeSlot(
                 last_timeslot.end,
                 last_timeslot.end + rand_activity.get_random_duration(),
                 rand_activity
