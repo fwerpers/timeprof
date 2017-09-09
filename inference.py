@@ -130,7 +130,7 @@ def main():
     ]
     activities = [Activity(*arg) for arg in activity_args]
     schedule = RandomSchedule(start, end, activities)
-    tag_percentages = schedule.get_percentage()
+    tag_percentages = schedule.get_tag_percentages()
     print(tag_percentages)
 
     ping_times = generate_ping_times(schedule.start, schedule.end, mean_interval=45)

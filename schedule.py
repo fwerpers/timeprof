@@ -80,7 +80,7 @@ class RandomSchedule:
 
         return(self.timeslot_list[i].activity.tag)
 
-    def get_percentage(self):
+    def get_tag_percentages(self):
         """Get the time percentage (float)
         for each tag in the schedule
         """
@@ -109,8 +109,8 @@ def main():
     ]
     activities = [Activity(*arg) for arg in activity_args]
     schedule = RandomSchedule(start, end, activities)
-    tag_percentage = schedule.get_percentage()
-    print(tag_percentage)
+    tag_percentages = schedule.get_tag_percentages()
+    print(tag_percentages)
 
 if __name__ == '__main__':
     main()
