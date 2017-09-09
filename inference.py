@@ -21,6 +21,9 @@ def generate_ping_times(start, end, mean_interval):
     return(times)
 
 def wilson_score_interval(tags, tag):
+    """Implementation from:
+    https://en.wikipedia.org/wiki/Binomial_proportion_confidence_interval
+    """
     N = float(len(tags))
     n = float(np.sum(tags == tag))
 
@@ -35,6 +38,9 @@ def wilson_score_interval(tags, tag):
     print(res)
 
 def normal_approximation_interval(tags, tag):
+    """Implementation from:
+    https://en.wikipedia.org/wiki/Binomial_proportion_confidence_interval
+    """
     N = float(len(tags))
     n = float(np.sum(tags == tag))
     z = 1.96 # 95% confidence interval
@@ -46,6 +52,10 @@ def normal_approximation_interval(tags, tag):
     print(res)
 
 def gamma_tom_jack(tags, tag):
+    """Implementation from discussion on:
+    http://messymatters.com/tagtime/
+    (Tom Jack)
+    """
     N = len(tags)
     n = np.sum(tags == tag)
 
@@ -57,6 +67,10 @@ def gamma_tom_jack(tags, tag):
     print(res/N)
 
 def gamma_daniel_reeves(tags, tag):
+    """Implementation from discussion on:
+    http://messymatters.com/tagtime/
+    (Daniel Reeves)
+    """
     N = len(tags)
     n = np.sum(tags == tag)
 
@@ -130,6 +144,7 @@ def main():
     gamma_brute(tags, tag)
     gamma_brute2(tags, tag)
     gamma_brute3(tags, tag)
+    gamma_wiki(tags, tag)
 
 if __name__ == '__main__':
     main()
