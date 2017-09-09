@@ -122,12 +122,9 @@ def main():
     start = datetime.datetime.now()
     duration = datetime.timedelta(2,0,0)
     end = start + duration
-    activity_args = [
-        ('poop', 15),
-        ('food', 45),
-        ('play', 2*60),
-        ('sleep', 6*60)
-    ]
+    tags = ['poop', 'food', 'play', 'sleep']
+    mean_durations = [15, 45, 2*60, 6*60]
+    activity_args = list(zip(tags, mean_durations))
     activities = [Activity(*arg) for arg in activity_args]
     schedule = RandomSchedule(start, end, activities)
     tag_percentages = schedule.get_tag_percentages()
