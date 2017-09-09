@@ -34,7 +34,7 @@ def wilson_score_interval(tags, tag):
     res = np.array([low, p, high])
     print(res)
 
-def population_proportion(tags, tag):
+def normal_approximation_interval(tags, tag):
     N = float(len(tags))
     n = float(np.sum(tags == tag))
     z = 1.96 # 95% confidence interval
@@ -124,7 +124,7 @@ def main():
 
     tag = 'poop'
     wilson_score_interval(tags, tag)
-    population_proportion(tags, tag)
+    normal_approximation_interval(tags, tag)
     gamma_tom_jack(tags, tag)
     gamma_daniel_reeves(tags, tag)
     gamma_brute(tags, tag)
