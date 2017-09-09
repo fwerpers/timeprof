@@ -94,7 +94,6 @@ class RandomSchedule:
         for timeslot in self.timeslot_list:
             d[timeslot.activity.tag] += timeslot.get_duration().total_seconds()/duration.total_seconds()
 
-        print(sum(d.values()))
         return(d)
 
 def main():
