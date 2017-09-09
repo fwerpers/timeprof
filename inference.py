@@ -23,8 +23,6 @@ def generate_ping_times(start, end, mean_interval):
 def wilson_score_interval(tags, tag):
     N = float(len(tags))
     n = float(np.sum(tags == tag))
-    # N = float(23)
-    # n = float(13)
 
     z = 1.96 # 95% confidence interval
     p = n/N
@@ -45,14 +43,11 @@ def population_proportion(tags, tag):
     low = p - interval_term
     high = p + interval_term
     res = np.array([low, p, high])
-    #res = np.array([interval_term, interval_term])
     print(res)
 
 def gamma_tom_jack(tags, tag):
     N = len(tags)
     n = np.sum(tags == tag)
-    # N = float(23)
-    # n = float(13)
 
     g = 0.75
     c = 0.95
@@ -64,8 +59,6 @@ def gamma_tom_jack(tags, tag):
 def gamma_daniel_reeves(tags, tag):
     N = len(tags)
     n = np.sum(tags == tag)
-    # N = float(23)
-    # n = float(13)
 
     g = 0.75
     c = 0.95
