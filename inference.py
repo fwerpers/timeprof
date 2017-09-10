@@ -130,7 +130,7 @@ def main():
     tag_percentages = schedule.get_tag_percentages()
     
     table = {}
-    table['acutal'] = tag_percentages
+    table['actual'] = tag_percentages
 
     ping_times = generate_ping_times(schedule.start, schedule.end, mean_interval=45)
     tag_samples = np.asarray([schedule.get_tag(time) for time in ping_times])
