@@ -35,7 +35,7 @@ def wilson_score_interval(tags, tag):
     low = factor*(base_term - interval_term)
     high = factor*(base_term + interval_term)
     res = np.array([low, p, high])
-    print(res)
+    return(res)
 
 def normal_approximation_interval(tags, tag):
     """Implementation from:
@@ -49,7 +49,7 @@ def normal_approximation_interval(tags, tag):
     low = p - interval_term
     high = p + interval_term
     res = np.array([low, p, high])
-    print(res)
+    return(res)
 
 def gamma_tom_jack(tags, tag):
     """Implementation from discussion on:
@@ -64,7 +64,7 @@ def gamma_tom_jack(tags, tag):
     low = g*gammainccinv(n, (1+c)/2)
     high = g*gammainccinv(n+1, (1-c)/2)
     res = np.array([low, high])
-    print(res/N)
+    return(res/N)
 
 def gamma_daniel_reeves(tags, tag):
     """Implementation from discussion on:
@@ -79,7 +79,7 @@ def gamma_daniel_reeves(tags, tag):
     low = g*gammainccinv(n, (1+c)/2)
     high = g*gammainccinv(n, (1-c)/2)
     res = np.array([low, high])
-    print(res/N)
+    return(res/N)
 
 def gamma_brute(tags, tag):
     N = len(tags)
@@ -88,7 +88,7 @@ def gamma_brute(tags, tag):
     low = gammainccinv(n, (1+c)/2)
     high = gammainccinv(n, (1-c)/2)
     res = np.array([low, high])
-    print(res/N)
+    return(res/N)
 
 def gamma_brute2(tags, tag):
     N = len(tags)
@@ -97,7 +97,7 @@ def gamma_brute2(tags, tag):
     low = gammainccinv(n, (1+c)/2)
     high = gammainccinv(n+1, (1-c)/2)
     res = np.array([low, high])
-    print(res/N)
+    return(res/N)
 
 def gamma_brute3(tags, tag):
     N = len(tags)
@@ -106,7 +106,7 @@ def gamma_brute3(tags, tag):
     low = gammaincinv(n, c/2)
     high = gammaincinv(n+1, 1-c/2)
     res = np.array([low, high])
-    print(res/N)
+    return(res/N)
 
 def gamma_wiki(tags, tag):
     N = len(tags)
@@ -115,7 +115,7 @@ def gamma_wiki(tags, tag):
     low = gammainccinv(n, c/2)
     high = gammainccinv(n+1, 1-c/2)
     res = np.array([low, high])
-    print(res/N)
+    return(res/N)
 
 def main():
     """ Example usage """
@@ -128,20 +128,30 @@ def main():
     activities = [Activity(*arg) for arg in activity_args]
     schedule = RandomSchedule(start, end, activities)
     tag_percentages = schedule.get_tag_percentages()
-    print(tag_percentages)
+    
+    actual = {'actual': tag_percentages}
+    print(actual)
 
     ping_times = generate_ping_times(schedule.start, schedule.end, mean_interval=45)
     tag_samples = np.asarray([schedule.get_tag(time) for time in ping_times])
 
     tag = 'poop'
-    wilson_score_interval(tag_samples, tag)
-    normal_approximation_interval(tag_samples, tag)
-    gamma_tom_jack(tag_samples, tag)
-    gamma_daniel_reeves(tag_samples, tag)
-    gamma_brute(tag_samples, tag)
-    gamma_brute2(tag_samples, tag)
-    gamma_brute3(tag_samples, tag)
-    gamma_wiki(tag_samples, tag)
+
+    methods = [
+        wilson_score_interval,
+        normal_approximation_interval,
+        gamma_tom_jack,
+        gamma_daniel_reeves,
+        gamma_brute,
+        gamma_brute2,
+        gamma_brute3,
+        gamma_wiki
+    ]
+
+    for method in methods:
+        res = method(tag_samples, tag)
+        print(method.__name__)
+        print(res)
 
 if __name__ == '__main__':
     main()
