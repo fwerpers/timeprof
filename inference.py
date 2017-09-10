@@ -129,8 +129,8 @@ def main():
     schedule = RandomSchedule(start, end, activities)
     tag_percentages = schedule.get_tag_percentages()
     
-    actual = {'actual': tag_percentages}
-    print(actual)
+    table = {}
+    table['acutal'] = tag_percentages
 
     ping_times = generate_ping_times(schedule.start, schedule.end, mean_interval=45)
     tag_samples = np.asarray([schedule.get_tag(time) for time in ping_times])
@@ -149,9 +149,12 @@ def main():
     ]
 
     for method in methods:
-        res = method(tag_samples, tag)
-        print(method.__name__)
-        print(res)
+        percentages = {}
+        for tag in tags:
+            percentages[tag] = method(tag_samples, tag)
+        table[method.__name__] = percentages
+
+    print(table)
 
 if __name__ == '__main__':
     main()
