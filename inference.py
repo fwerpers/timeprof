@@ -23,12 +23,12 @@ def generate_sample_times(start, end, mean_interval):
 
     return(times)
 
-def wilson_score_interval(tags, tag):
+def wilson_score_interval(tag_samples, tag):
     """Implementation from:
     https://en.wikipedia.org/wiki/Binomial_proportion_confidence_interval
     """
-    N = float(len(tags))
-    n = float(np.sum(tags == tag))
+    N = float(len(tag_samples))
+    n = float(np.sum(tag_samples == tag))
 
     z = 1.96 # 95% confidence interval
     p = n/N
@@ -40,12 +40,12 @@ def wilson_score_interval(tags, tag):
     res = np.array([low, p, high])
     return(res)
 
-def normal_approximation_interval(tags, tag):
+def normal_approximation_interval(tag_samples, tag):
     """Implementation from:
     https://en.wikipedia.org/wiki/Binomial_proportion_confidence_interval
     """
-    N = float(len(tags))
-    n = float(np.sum(tags == tag))
+    N = float(len(tag_samples))
+    n = float(np.sum(tag_samples == tag))
     z = 1.96 # 95% confidence interval
     p = n/N
     interval_term = z*np.sqrt(p*(1-p)/N)
@@ -54,13 +54,13 @@ def normal_approximation_interval(tags, tag):
     res = np.array([low, p, high])
     return(res)
 
-def gamma_tom_jack(tags, tag):
+def gamma_tom_jack(tag_samples, tag):
     """Implementation from discussion on:
     http://messymatters.com/tagtime/
     (Tom Jack)
     """
-    N = len(tags)
-    n = np.sum(tags == tag)
+    N = len(tag_samples)
+    n = np.sum(tag_samples == tag)
 
     g = 0.75
     c = 0.95
@@ -69,13 +69,13 @@ def gamma_tom_jack(tags, tag):
     res = np.array([low, high])
     return(res/N)
 
-def gamma_daniel_reeves(tags, tag):
+def gamma_daniel_reeves(tag_samples, tag):
     """Implementation from discussion on:
     http://messymatters.com/tagtime/
     (Daniel Reeves)
     """
-    N = len(tags)
-    n = np.sum(tags == tag)
+    N = len(tag_samples)
+    n = np.sum(tag_samples == tag)
 
     g = 0.75
     c = 0.95
@@ -84,36 +84,36 @@ def gamma_daniel_reeves(tags, tag):
     res = np.array([low, high])
     return(res/N)
 
-def gamma_brute(tags, tag):
-    N = len(tags)
-    n = np.sum(tags == tag)
+def gamma_brute(tag_samples, tag):
+    N = len(tag_samples)
+    n = np.sum(tag_samples == tag)
     c = 0.95
     low = gammainccinv(n, (1+c)/2)
     high = gammainccinv(n, (1-c)/2)
     res = np.array([low, high])
     return(res/N)
 
-def gamma_brute2(tags, tag):
-    N = len(tags)
-    n = np.sum(tags == tag)
+def gamma_brute2(tag_samples, tag):
+    N = len(tag_samples)
+    n = np.sum(tag_samples == tag)
     c = 0.95
     low = gammainccinv(n, (1+c)/2)
     high = gammainccinv(n+1, (1-c)/2)
     res = np.array([low, high])
     return(res/N)
 
-def gamma_brute3(tags, tag):
-    N = len(tags)
-    n = np.sum(tags == tag)
+def gamma_brute3(tag_samples, tag):
+    N = len(tag_samples)
+    n = np.sum(tag_samples == tag)
     c = 0.95
     low = gammaincinv(n, c/2)
     high = gammaincinv(n+1, 1-c/2)
     res = np.array([low, high])
     return(res/N)
 
-def gamma_wiki(tags, tag):
-    N = len(tags)
-    n = np.sum(tags == tag)
+def gamma_wiki(tag_samples, tag):
+    N = len(tag_samples)
+    n = np.sum(tag_samples == tag)
     c = 0.95
     low = gammainccinv(n, c/2)
     high = gammainccinv(n+1, 1-c/2)
