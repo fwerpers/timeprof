@@ -10,7 +10,7 @@ def get_random_interval(mean_interval):
     duration = datetime.timedelta(0, minutes*60, 0)
     return(duration)
 
-def generate_ping_times(start, end, mean_interval):
+def generate_sample_times(start, end, mean_interval):
     times = [start]
     while True:
         duration = get_random_interval(mean_interval)
@@ -133,7 +133,7 @@ def main():
     table = {}
     table['actual'] = tag_percentages
 
-    ping_times = generate_ping_times(schedule.start, schedule.end, mean_interval=45)
+    ping_times = generate_sample_times(schedule.start, schedule.end, mean_interval=45)
     tag_samples = np.asarray([schedule.get_tag(time) for time in ping_times])
 
     tag = 'poop'
