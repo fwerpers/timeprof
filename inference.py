@@ -6,11 +6,13 @@ from scipy.special import gammainccinv, gammaincinv
 import json
 
 def get_random_interval(mean_interval):
+    """Generates a random interval (datetime.timedelta) using the exponential distribution"""
     minutes = np.ceil(np.random.exponential(scale=mean_interval))
     duration = datetime.timedelta(0, minutes*60, 0)
     return(duration)
 
 def generate_sample_times(start, end, mean_interval):
+    """Returns a list of sample times (datetime.datetime)"""
     times = [start]
     while True:
         duration = get_random_interval(mean_interval)
