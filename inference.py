@@ -138,8 +138,6 @@ def main():
     ping_times = generate_sample_times(schedule.start, schedule.end, mean_interval=45)
     tag_samples = np.asarray([schedule.get_tag(time) for time in ping_times])
 
-    tag = 'poop'
-
     methods = [
         wilson_score_interval,
         normal_approximation_interval,
