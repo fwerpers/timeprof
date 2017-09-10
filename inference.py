@@ -3,6 +3,7 @@ import numpy as np
 from schedule import Activity, RandomSchedule
 import time
 from scipy.special import gammainccinv, gammaincinv
+import json
 
 def get_random_interval(mean_interval):
     minutes = np.ceil(np.random.exponential(scale=mean_interval))
@@ -151,10 +152,12 @@ def main():
     for method in methods:
         percentages = {}
         for tag in tags:
-            percentages[tag] = method(tag_samples, tag)
+            percentages[tag] = list(method(tag_samples, tag))
         table[method.__name__] = percentages
 
-    print(table)
+    table_string = json.dumps(table, indent=4)
+
+    print(table_string)
 
 if __name__ == '__main__':
     main()
