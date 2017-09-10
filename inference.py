@@ -23,6 +23,20 @@ def generate_sample_times(start, end, mean_interval):
 
     return(times)
 
+def normal_approximation_interval(tag_samples, tag):
+    """Implementation from:
+    https://en.wikipedia.org/wiki/Binomial_proportion_confidence_interval
+    """
+    N = float(len(tag_samples))
+    n = float(np.sum(tag_samples == tag))
+    z = 1.96 # 95% confidence interval
+    p = n/N
+    interval_term = z*np.sqrt(p*(1-p)/N)
+    low = p - interval_term
+    high = p + interval_term
+    res = np.array([low, p, high])
+    return(res)
+
 def wilson_score_interval(tag_samples, tag):
     """Implementation from:
     https://en.wikipedia.org/wiki/Binomial_proportion_confidence_interval
@@ -37,20 +51,6 @@ def wilson_score_interval(tag_samples, tag):
     interval_term = z*np.sqrt(p*(1-p)/N+z**2/(4*N**2))
     low = factor*(base_term - interval_term)
     high = factor*(base_term + interval_term)
-    res = np.array([low, p, high])
-    return(res)
-
-def normal_approximation_interval(tag_samples, tag):
-    """Implementation from:
-    https://en.wikipedia.org/wiki/Binomial_proportion_confidence_interval
-    """
-    N = float(len(tag_samples))
-    n = float(np.sum(tag_samples == tag))
-    z = 1.96 # 95% confidence interval
-    p = n/N
-    interval_term = z*np.sqrt(p*(1-p)/N)
-    low = p - interval_term
-    high = p + interval_term
     res = np.array([low, p, high])
     return(res)
 
