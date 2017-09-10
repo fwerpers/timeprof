@@ -131,17 +131,17 @@ def main():
     print(tag_percentages)
 
     ping_times = generate_ping_times(schedule.start, schedule.end, mean_interval=45)
-    tags = np.asarray([schedule.get_tag(time) for time in ping_times])
+    tag_samples = np.asarray([schedule.get_tag(time) for time in ping_times])
 
     tag = 'poop'
-    wilson_score_interval(tags, tag)
-    normal_approximation_interval(tags, tag)
-    gamma_tom_jack(tags, tag)
-    gamma_daniel_reeves(tags, tag)
-    gamma_brute(tags, tag)
-    gamma_brute2(tags, tag)
-    gamma_brute3(tags, tag)
-    gamma_wiki(tags, tag)
+    wilson_score_interval(tag_samples, tag)
+    normal_approximation_interval(tag_samples, tag)
+    gamma_tom_jack(tag_samples, tag)
+    gamma_daniel_reeves(tag_samples, tag)
+    gamma_brute(tag_samples, tag)
+    gamma_brute2(tag_samples, tag)
+    gamma_brute3(tag_samples, tag)
+    gamma_wiki(tag_samples, tag)
 
 if __name__ == '__main__':
     main()
