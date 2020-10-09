@@ -1,0 +1,121 @@
+
+import asyncio
+from nio import (
+    AsyncClient,
+    RoomMessageText)
+import time
+import re
+import logging
+import os
+
+
+HOMESERVER = "https://matrix.org"
+BOT_USER_ID = "@stockbot:matrix.org"
+ROOM_ID = "!PVsSLtsHzukOllfHiS:matrix.org"
+USER_ID = "@fwerpers:matrix.org"  # if of user to interact with
+MSG_TIME_LIMIT_MS = 5e3
+MS_PER_S = 1e3
+DEFAULT_AMOUNT = int(1e3)
+
+
+STATE_NONE = 0
+STATE_YES_NO = 1
+STATE_AMOUNT = 2
+STATE_LOGIN = 3
+
+
+class Bot():
+    def __init__(self):
+        pass
+
+    async def init(self, homeserver, user_id, pw):
+        self.client = AsyncClient(homeserver, user_id)
+        self.client.add_event_callback(self.message_callback, RoomMessageText)
+        await self.client.login(pw)
+        self.state = STATE_NONE
+        logging.info("Initialised bot")
+
+    async def ask_for_amount(self):
+        await self.send_message("Enter an amount")
+        self.state = STATE_AMOUNT
+
+    async def buy_fund_with_momentum(
+            self, amount=DEFAULT_AMOUNT,
+            exit_after=False):
+        info_str = "Buying with amount {}".format(amount)
+        logging.info(info_str)
+        await self.send_message(info_str)
+        self.state = STATE_NONE
+        if exit_after:
+            exit(0)
+
+    def msg_event_valid(self, event):
+        ret = True
+        time_now = int(round(time.time() * MS_PER_S))
+        if event.sender != USER_ID:
+            ret = False
+        elif time_now - event.server_timestamp > MSG_TIME_LIMIT_MS:
+            ret = False
+        return ret
+
+    def is_amount(self, msg):
+        ret = False
+        re_pattern = r"^\d+$"
+        m = re.match(re_pattern, msg)
+        if m is not None:
+            ret = True
+        return ret
+
+    async def message_callback(self, room, event):
+        msg = event.body
+        if not self.msg_event_valid(event):
+            return
+        if self.state == STATE_YES_NO:
+            if msg == "yes":
+                await self.buy_fund_with_momentum(exit_after=True)
+            elif msg == "no":
+                return
+            else:
+                err_str = "Expected yes or no, not '{}'".format(msg)
+                await self.send_message(err_str)
+        elif self.state == STATE_NONE and msg == "buy":
+            logging.info("Got buy request")
+            await self.ask_for_amount()
+        elif self.state == STATE_AMOUNT:
+            if self.is_amount(msg):
+                amount = int(msg)
+                await self.buy_fund_with_momentum(amount)
+            else:
+                await self.send_message("Invalid amount, enter an integer")
+        elif self.state == STATE_LOGIN:
+            # Do the login procedure
+            pass
+
+    async def send_message(self, msg):
+        await self.client.room_send(
+            room_id=ROOM_ID,
+            message_type="m.room.message",
+            content={
+                "msgtype": "m.text",
+                "body": msg
+            }
+        )
+
+    async def ask_for_buying(self):
+        await self.send_message("Buy fund with momentum?")
+        self.state = STATE_YES_NO
+
+
+async def main():
+    bot = Bot()
+    pw = os.environ["STOCKBOT_MATRIX_PW"]
+    await bot.init(HOMESERVER, BOT_USER_ID, pw)
+    await bot.send_message("Hello from stockbot")
+    await bot.ask_for_buying()
+    await bot.client.sync_forever(timeout=10000)
+    await bot.client.close()
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    asyncio.get_event_loop().run_until_complete(main())
