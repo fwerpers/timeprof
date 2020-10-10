@@ -6,6 +6,7 @@ import time
 import re
 import logging
 import os
+import numpy as np
 from datetime import (datetime, timedelta)
 
 
@@ -44,6 +45,8 @@ class Bot():
         self.state = STATE_NONE
         self.room_id = room_id
         self.user_id = user_id
+        self.poisson_process_rate = 45  # minutes
+        self.next_sample_time = 0  # set after user activity input
         logging.info("Initialised bot")
 
     async def collect_user_activity(self):
@@ -82,11 +85,14 @@ class Bot():
     def save_data(self, label):
         with open(DATA_FILENAME, 'a') as f:
             timestamp = str(datetime.now())
-            line = "{}, {}\n".format(timestamp, label)
+            line = "{}, {}, {}\n".format(timestamp,
+                                         label,
+                                         self.poisson_process_rate)
             f.write(line)
         logging.info("Saving data '{}'".format(line))
 
     def set_rate(self, rate):
+        self.poisson_process_rate = rate
         logging.info("Setting rate to {}".format(rate))
 
     async def send_help_message(self):
@@ -94,7 +100,9 @@ class Bot():
         help_str = """Available inputs:
 help - this message
 info - description of the bot
-set rate <rate> - set rate (minutes) of sampling process
+set rate <rate> - set rate (minutes) of sampling process. Must be an integer
+get rate - get current rate
+get next - get time of next sample
         """
         await self.send_message(help_str)
 
@@ -140,8 +148,25 @@ This is a bot to collect user activity with sampling according to a Poisson proc
         re_pattern = r"^set rate (\d+)$"
         m = re.match(re_pattern, msg)
         if m is not None:
-            rate = m.groups()[1]
-            self.set_sample_rate(rate)
+            rate = m.groups()[0]
+            self.set_sample_rate(float(rate))
+            await self.send_message("Updated rate to {}".format(rate))
+            ret = True
+        return ret
+
+    async def handle_get_rate_message(self, msg):
+        ret = False
+        if msg == "get rate":
+            response = "Current rate is {}".format(self.poisson_process_rate)
+            await self.send_message(response)
+            ret = True
+        return ret
+
+    async def handle_get_next_sample_time(self, msg):
+        ret = False
+        if msg == "get next":
+            response = "Next sample scheduled for {}".format(self.next_sample_time)
+            await self.send_message(response)
             ret = True
         return ret
 
@@ -154,7 +179,14 @@ This is a bot to collect user activity with sampling according to a Poisson proc
         await self.wait_until(dt)
         return await coro
 
+    def get_next_sample_time(self):
+        time_now = datetime.now()
+        interval = np.ceil(np.random.exponential(scale=self.poisson_process_rate))
+        next_sample_dt = time_now + timedelta(minutes=interval)
+        return next_sample_dt
+
     async def handle_valid_message(self, msg):
+        logging.info("Handling valid message '{}'".format(msg))
         response_msg = ""
         if self.state == STATE_ACTIVITY_WAIT:
             if self.is_activity_string(msg):
@@ -162,8 +194,8 @@ This is a bot to collect user activity with sampling according to a Poisson proc
                 self.save_data(msg)
                 self.state = STATE_NONE
                 loop = asyncio.get_event_loop()
-                time_now = datetime.now()
-                next_sample_dt = time_now + timedelta(seconds=10)
+                next_sample_dt = self.get_next_sample_time()
+                self.next_sample_time = next_sample_dt
                 loop.create_task(self.run_at(next_sample_dt, self.collect_user_activity()))
             else:
                 err_str = "Expected lowercase words, not '{}'".format(msg)
@@ -176,6 +208,10 @@ This is a bot to collect user activity with sampling according to a Poisson proc
             elif (await self.handle_data_summary_message(msg)):
                 pass
             elif (await self.handle_set_rate_message(msg)):
+                pass
+            elif (await self.handle_get_rate_message(msg)):
+                pass
+            elif (await self.handle_get_next_sample_time(msg)):
                 pass
             else:
                 response_msg = "'{}' is not valid input. Send 'help' to list valid input".format(msg)
