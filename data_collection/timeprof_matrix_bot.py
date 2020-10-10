@@ -7,6 +7,8 @@ import re
 import logging
 import os
 import numpy as np
+import aiofiles
+import aiofiles.os
 from datetime import (datetime, timedelta)
 
 
@@ -42,8 +44,10 @@ class Bot():
                                   bot_id,
                                   ssl=True,
                                   device_id="matrix-nio")
+        logging.info(self.client.access_token)
         self.client.add_event_callback(self.message_callback, RoomMessageText)
         await self.client.login(bot_pw)
+        logging.info(self.client.access_token)
         self.state = STATE_NONE
         self.room_id = room_id
         self.user_id = user_id
@@ -105,6 +109,7 @@ info - description of the bot
 set rate <rate> - set rate (minutes) of sampling process. Must be an integer
 get rate - get current rate
 get next - get time of next sample
+get data - get a download link for the data
         """
         await self.send_message(help_str)
 
@@ -174,6 +179,13 @@ The data saved at each sample is the timestamp, the string provided by the user 
             ret = True
         return ret
 
+    async def handle_get_data(self, msg):
+        ret = False
+        if msg == "get data":
+            await self.send_data()
+            ret = True
+        return ret
+
     async def wait_until(self, dt):
         # sleep until the specified datetime
         now = datetime.now()
@@ -217,6 +229,8 @@ The data saved at each sample is the timestamp, the string provided by the user 
                 pass
             elif (await self.handle_get_next_sample_time(msg)):
                 pass
+            elif (await self.handle_get_data(msg)):
+                pass
             else:
                 response_msg = "'{}' is not valid input. Send 'help' to list valid input".format(msg)
                 await self.send_message(response_msg)
@@ -235,6 +249,25 @@ The data saved at each sample is the timestamp, the string provided by the user 
             content={
                 "msgtype": "m.text",
                 "body": msg
+            }
+        )
+
+    async def send_data(self):
+        file_stat = await aiofiles.os.stat(DATA_FILENAME)
+        async with aiofiles.open(DATA_FILENAME, "r+b") as f:
+            resp, maybe_keys = await self.client.upload(
+                f,
+                content_type="test/plain",
+                filename=DATA_FILENAME,
+                filesize=file_stat.st_size
+            )
+        await self.client.room_send(
+            room_id=self.room_id,
+            message_type="m.room.message",
+            content={
+                "msgtype": "m.file",
+                "url": resp.content_uri,
+                "body": "TimeProf data"
             }
         )
 
