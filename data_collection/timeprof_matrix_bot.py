@@ -28,6 +28,10 @@ WERPERS_USER_ID = "@werpers:matrix.org"  # if of user to interact with
 FWERPERS_USER_ID = "@fwerpers:matrix.org"
 
 
+# TODO: add ability to get data summary
+# TODO: add ability to get the csv file
+# TODO: add ability to get data vis image
+
 class Bot():
     def __init__(self):
         pass
