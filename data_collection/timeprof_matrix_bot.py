@@ -6,7 +6,7 @@ import time
 import re
 import logging
 import os
-from datetime import datetime
+from datetime import (datetime, timedelta)
 
 
 HOMESERVER = "https://matrix.org"
@@ -145,6 +145,15 @@ This is a bot to collect user activity with sampling according to a Poisson proc
             ret = True
         return ret
 
+    async def wait_until(self, dt):
+        # sleep until the specified datetime
+        now = datetime.now()
+        await asyncio.sleep((dt - now).total_seconds())
+
+    async def run_at(self, dt, coro):
+        await self.wait_until(dt)
+        return await coro
+
     async def handle_valid_message(self, msg):
         response_msg = ""
         if self.state == STATE_ACTIVITY_WAIT:
@@ -152,6 +161,10 @@ This is a bot to collect user activity with sampling according to a Poisson proc
                 await self.send_message("Saving data...")
                 self.save_data(msg)
                 self.state = STATE_NONE
+                loop = asyncio.get_event_loop()
+                time_now = datetime.now()
+                next_sample_dt = time_now + timedelta(seconds=10)
+                loop.create_task(self.run_at(next_sample_dt, self.collect_user_activity()))
             else:
                 err_str = "Expected lowercase words, not '{}'".format(msg)
                 await self.send_message(err_str)
