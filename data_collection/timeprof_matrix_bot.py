@@ -6,6 +6,7 @@ import time
 import re
 import logging
 import os
+from datetime import datetime
 
 
 HOMESERVER = "https://matrix.org"
@@ -22,6 +23,8 @@ DEFAULT_AMOUNT = int(1e3)
 STATE_NONE = 0
 STATE_ACTIVITY_WAIT = 1
 
+DATA_FILENAME = "data.csv"
+
 
 """ This is a bot to collect user activity with sampling according to a Poisson process. Every now and then it will ask what you are up to. To set the rate of the Poisson process sampling, type "set rate <rate>"
 """
@@ -32,7 +35,10 @@ class Bot():
         pass
 
     async def init(self, homeserver, bot_id, bot_pw, room_id, user_id):
-        self.client = AsyncClient(homeserver, bot_id, ssl=True, device_id="matrix-nio")
+        self.client = AsyncClient(homeserver,
+                                  bot_id,
+                                  ssl=True,
+                                  device_id="matrix-nio")
         self.client.add_event_callback(self.message_callback, RoomMessageText)
         await self.client.login(bot_pw)
         self.state = STATE_NONE
@@ -64,24 +70,110 @@ class Bot():
             ret = True
         return ret
 
-    def save_save(self):
-        logging.info("Saving data")
+    def is_activity_string(self, msg):
+        ret = False
+        # Match a string with white-space separated lower-case words
+        re_pattern = r"^([a-z]+)(\s[a-z]+)*$"
+        m = re.match(re_pattern, msg)
+        if m is not None:
+            ret = True
+        return ret
+
+    def save_data(self, label):
+        with open(DATA_FILENAME, 'a') as f:
+            timestamp = str(datetime.now())
+            line = "{}, {}\n".format(timestamp, label)
+            f.write(line)
+        logging.info("Saving data '{}'".format(line))
+
+    def set_rate(self, rate):
+        logging.info("Setting rate to {}".format(rate))
+
+    async def send_help_message(self):
+        # TODO: don't hardcode this
+        help_str = """Available inputs:
+help - this message
+info - description of the bot
+set rate <rate> - set rate (minutes) of sampling process
+        """
+        await self.send_message(help_str)
+
+    async def send_info_message(self):
+        info_str = """
+This is a bot to collect user activity with sampling according to a Poisson process. Every now and then it will ask what you are up to and record it. To see other available input, send 'help'.
+        """
+        await self.send_message(info_str)
+
+    async def send_data_summary_message(self):
+        # TODO: read saved data and summarize
+        # Output a table with all recorded labels
+        # Total number of samples
+        # Samples and percentage per label
+        return False
+
+    async def handle_help_message(self, msg):
+        ret = False
+        if msg == "help":
+            await self.send_help_message()
+            ret = True
+        return ret
+
+    async def handle_info_message(self, msg):
+        ret = False
+        if msg == "info":
+            await self.send_info_message()
+            ret = True
+        return ret
+
+    async def handle_data_summary_message(self, msg):
+        ret = False
+        if msg == "data summary":
+            await self.send_data_summary_message()
+            ret = True
+        return ret
+
+    def set_sample_rate(self, rate):
+        self.poisson_process_rate = rate
+
+    async def handle_set_rate_message(self, msg):
+        ret = False
+        re_pattern = r"^set rate (\d+)$"
+        m = re.match(re_pattern, msg)
+        if m is not None:
+            rate = m.groups()[1]
+            self.set_sample_rate(rate)
+            ret = True
+        return ret
+
+    async def handle_valid_message(self, msg):
+        response_msg = ""
+        if self.state == STATE_ACTIVITY_WAIT:
+            if self.is_activity_string(msg):
+                await self.send_message("Saving data...")
+                self.save_data(msg)
+                self.state = STATE_NONE
+            else:
+                err_str = "Expected lowercase words, not '{}'".format(msg)
+                await self.send_message(err_str)
+        elif self.state == STATE_NONE:
+            if (await self.handle_help_message(msg)):
+                pass
+            elif (await self.handle_info_message(msg)):
+                pass
+            elif (await self.handle_data_summary_message(msg)):
+                pass
+            elif (await self.handle_set_rate_message(msg)):
+                pass
+            else:
+                response_msg = "'{}' is not valid input. Send 'help' to list valid input".format(msg)
+                await self.send_message(response_msg)
 
     async def message_callback(self, room, event) -> None:
-        print("asdfasdfasdf")
-        logging.info("dasdasdasdasds")
         msg = event.body
-        logging.info("Got message {}".format(msg))
-        if not self.msg_event_valid(event):
-            #logging.info("Discarding message {}".format(msg))
-            return
-        if self.state == STATE_ACTIVITY_WAIT:
-            if self.is_simple_phrase(msg):
-                await self.send_message("Saving data...")
-                self.save_data()
-            else:
-                err_str = "Expected simple words, not '{}'".format(msg)
-                await self.send_message(err_str)
+        if self.msg_event_valid(event):
+            await self.handle_valid_message(msg)
+        else:
+            logging.info("Discarding message {}".format(msg))
 
     async def send_message(self, msg):
         await self.client.room_send(
