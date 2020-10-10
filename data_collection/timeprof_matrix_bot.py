@@ -31,6 +31,7 @@ FWERPERS_USER_ID = "@fwerpers:matrix.org"
 # TODO: add ability to get data summary
 # TODO: add ability to get the csv file
 # TODO: add ability to get data vis image
+# TODO: set up to run on Raspberry Pi
 
 class Bot():
     def __init__(self):
