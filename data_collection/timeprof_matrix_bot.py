@@ -12,10 +12,6 @@ from datetime import (datetime, timedelta)
 
 HOMESERVER = "https://matrix.org"
 BOT_USER_ID = "@timeprof_bot:matrix.org"
-WERPERS_ROOM_ID = "!axKzwhgxJKiKiOhYrD:matrix.org"
-FWERPERS_ROOM_ID = "!RSzOBpBQRUWLcnlzmq:matrix.org"
-WERPERS_USER_ID = "@werpers:matrix.org"  # if of user to interact with
-FWERPERS_USER_ID = "@fwerpers:matrix.org"
 MSG_TIME_LIMIT_MS = 5e3
 MS_PER_S = 1e3
 DEFAULT_AMOUNT = int(1e3)
@@ -26,9 +22,10 @@ STATE_ACTIVITY_WAIT = 1
 
 DATA_FILENAME = "data.csv"
 
-
-""" This is a bot to collect user activity with sampling according to a Poisson process. Every now and then it will ask what you are up to. To set the rate of the Poisson process sampling, type "set rate <rate>"
-"""
+WERPERS_ROOM_ID = "!axKzwhgxJKiKiOhYrD:matrix.org"
+FWERPERS_ROOM_ID = "!RSzOBpBQRUWLcnlzmq:matrix.org"
+WERPERS_USER_ID = "@werpers:matrix.org"  # if of user to interact with
+FWERPERS_USER_ID = "@fwerpers:matrix.org"
 
 
 class Bot():
@@ -108,7 +105,9 @@ get next - get time of next sample
 
     async def send_info_message(self):
         info_str = """
-This is a bot to collect user activity with sampling according to a Poisson process. Every now and then it will ask what you are up to and record it. To see other available input, send 'help'.
+This is a bot to collect user activity with sampling according to a Poisson process. Every now and then it will ask what you are up to and record it. Reply with a string of whitespace separated words. To see other available input, send 'help'.
+        
+The data saved at each sample is the timestamp, the string provided by the user and the currently set rate of the Poisson process.
         """
         await self.send_message(info_str)
 
@@ -245,6 +244,7 @@ async def main():
                    FWERPERS_ROOM_ID,
                    FWERPERS_USER_ID)
     await bot.send_message("Hello from TimeProf =D")
+    await bot.send_message("Send 'help' for possible input")
     await bot.collect_user_activity()
     await bot.client.sync_forever(timeout=10000)
     await bot.client.close()
