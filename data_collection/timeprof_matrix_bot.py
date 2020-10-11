@@ -206,7 +206,7 @@ The data saved at each sample is the timestamp, the string provided by the user 
         response_msg = ""
         if self.state == STATE_ACTIVITY_WAIT:
             if self.is_activity_string(msg):
-                await self.send_message("Saving data...")
+                await self.send_message("Cool, I'll remember that >:)")
                 self.save_data(msg)
                 self.state = STATE_NONE
                 loop = asyncio.get_event_loop()
@@ -235,7 +235,7 @@ The data saved at each sample is the timestamp, the string provided by the user 
                 response_msg = "'{}' is not valid input. Send 'help' to list valid input".format(msg)
                 await self.send_message(response_msg)
 
-    async def message_callback(self, room, event) -> None:
+    async def message_callback(self, room, event):
         msg = event.body
         if self.msg_event_valid(event):
             await self.handle_valid_message(msg)
