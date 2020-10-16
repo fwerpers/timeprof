@@ -24,7 +24,9 @@ STATE_ACTIVITY_WAIT = 1
 
 DATA_FILENAME = "data.csv"
 
-WERPERS_ROOM_ID = "!axKzwhgxJKiKiOhYrD:matrix.org"
+#WERPERS_ROOM_ID = "!axKzwhgxJKiKiOhYrD:matrix.org"
+WERPERS_ROOM_ID = "!lkPsBhWrdHbdrnJajF:matrix.org"
+
 FWERPERS_ROOM_ID = "!RSzOBpBQRUWLcnlzmq:matrix.org"
 WERPERS_USER_ID = "@werpers:matrix.org"  # if of user to interact with
 FWERPERS_USER_ID = "@fwerpers:matrix.org"
