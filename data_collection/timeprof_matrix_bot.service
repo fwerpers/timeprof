@@ -1,0 +1,10 @@
+[Unit]
+Description=Timeprof Matrix Bot for data collection
+
+[Service]
+ExecStart=/home/pi/timeprof_bot/data_collection/timeprof_matrix_bot.py
+User=pi
+EnvironmentFile=/home/pi/timeprof_matrix_bot.env
+
+[Install]
+WantedBy=multi-user.target
