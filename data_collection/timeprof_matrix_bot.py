@@ -11,6 +11,7 @@ import numpy as np
 import aiofiles
 import aiofiles.os
 from datetime import (datetime, timedelta)
+from pathlib import Path
 
 
 HOMESERVER = "https://matrix.org"
@@ -23,7 +24,8 @@ DEFAULT_AMOUNT = int(1e3)
 STATE_NONE = 0
 STATE_ACTIVITY_WAIT = 1
 
-DATA_FILENAME = "data.csv"
+PATH_TO_THIS_DIR = Path(__file__).absolute().parent
+DATA_FILENAME = PATH_TO_THIS_DIR.joinpath("data.csv")
 
 #WERPERS_ROOM_ID = "!axKzwhgxJKiKiOhYrD:matrix.org"
 WERPERS_ROOM_ID = "!lkPsBhWrdHbdrnJajF:matrix.org"
@@ -282,8 +284,8 @@ async def main():
     await bot.init(HOMESERVER,
                    BOT_USER_ID,
                    pw,
-                   FWERPERS_ROOM_ID,
-                   FWERPERS_USER_ID)
+                   WERPERS_ROOM_ID,
+                   WERPERS_USER_ID)
     await bot.send_message("Hello from TimeProf =D")
     await bot.send_message("Send 'help' for possible input")
     await bot.collect_user_activity()
