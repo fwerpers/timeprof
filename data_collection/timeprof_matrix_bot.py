@@ -58,11 +58,13 @@ class Bot():
         self.user_id = user_id
         self.poisson_process_rate = 45  # minutes
         self.next_sample_time = 0  # set after user activity input
+        self.previous_sample_time = 0
         logging.info("Initialised bot")
 
     async def collect_user_activity(self):
         await self.send_message("What's up?")
         self.state = STATE_ACTIVITY_WAIT
+        self.schedule_next_sample()
 
     def msg_event_valid(self, event):
         """ Make sure the message is from the expected user
@@ -95,7 +97,7 @@ class Bot():
 
     def save_data(self, label):
         with open(DATA_FILENAME, 'a') as f:
-            timestamp = str(datetime.now())
+            timestamp = str(self.previous_sample_time)
             line = "{}, {}, {}\n".format(timestamp,
                                          label,
                                          self.poisson_process_rate)
@@ -206,6 +208,13 @@ The data saved at each sample is the timestamp, the string provided by the user 
         next_sample_dt = time_now + timedelta(minutes=interval)
         return next_sample_dt
 
+    def schedule_next_sample(self):
+        loop = asyncio.get_event_loop()
+        self.previous_sample_time = self.next_sample_time  # save previous sample time
+        next_sample_dt = self.get_next_sample_time()
+        self.next_sample_time = next_sample_dt
+        loop.create_task(self.run_at(next_sample_dt, self.collect_user_activity()))
+
     async def handle_valid_message(self, msg):
         logging.info("Handling valid message '{}'".format(msg))
         response_msg = ""
@@ -214,10 +223,6 @@ The data saved at each sample is the timestamp, the string provided by the user 
                 await self.send_message("Cool, I'll remember that >:)")
                 self.save_data(msg)
                 self.state = STATE_NONE
-                loop = asyncio.get_event_loop()
-                next_sample_dt = self.get_next_sample_time()
-                self.next_sample_time = next_sample_dt
-                loop.create_task(self.run_at(next_sample_dt, self.collect_user_activity()))
             else:
                 err_str = "Expected lowercase words, not '{}'".format(msg)
                 await self.send_message(err_str)
@@ -284,11 +289,11 @@ async def main():
     await bot.init(HOMESERVER,
                    BOT_USER_ID,
                    pw,
-                   WERPERS_ROOM_ID,
-                   WERPERS_USER_ID)
+                   FWERPERS_ROOM_ID,
+                   FWERPERS_USER_ID)
     await bot.send_message("Hello from TimeProf =D")
     await bot.send_message("Send 'help' for possible input")
-    await bot.collect_user_activity()
+    bot.schedule_next_sample()
     await bot.client.sync_forever(timeout=10000)
     await bot.client.close()
 
