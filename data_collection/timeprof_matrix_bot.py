@@ -284,8 +284,8 @@ async def main():
     await bot.init(HOMESERVER,
                    BOT_USER_ID,
                    pw,
-                   WERPERS_ROOM_ID,
-                   WERPERS_USER_ID)
+                   FWERPERS_ROOM_ID,
+                   FWERPERS_USER_ID)
     await bot.send_message("Hello from TimeProf =D")
     await bot.send_message("Send 'help' for possible input")
     await bot.collect_user_activity()
