@@ -30,16 +30,15 @@ STATE_NONE = 0
 STATE_ACTIVITY_WAIT = 1
 STATE_ROOM_SWITCH_WAIT = 2
 
+KEY_STATE = "state"
+KEY_NEW_ROOM = "new_room_id"
+KEY_ROOM = "room_id"
+KEY_RATE = "poisson_process_rate"
+KEY_NEXT_SAMPLE_TIME = "next_sample_time"
+
 PATH_TO_THIS_DIR = Path(__file__).absolute().parent
-DATA_FILENAME = PATH_TO_THIS_DIR.joinpath("data.csv")
 DATA_DIR = PATH_TO_THIS_DIR.joinpath("data")
-
-#WERPERS_ROOM_ID = "!axKzwhgxJKiKiOhYrD:matrix.org"
-WERPERS_ROOM_ID = "!lkPsBhWrdHbdrnJajF:matrix.org"
-
-FWERPERS_ROOM_ID = "!RSzOBpBQRUWLcnlzmq:matrix.org"
-WERPERS_USER_ID = "@werpers:matrix.org"  # if of user to interact with
-FWERPERS_USER_ID = "@fwerpers:matrix.org"
+USER_STATES_PATH = DATA_DIR.joinpath("user_states.json")
 
 JOIN_ATTEMPT_LIMIT = 3
 WELCOME_STR = """Hello from TimeProf =D
@@ -49,6 +48,13 @@ Type 'help' to see available inputs"""
 # TODO: add ability to get the csv file
 # TODO: add ability to get data vis image
 # TODO: set up to run on Raspberry Pi
+# TODO: if a user leaves a room, also leave the room. Possibly save some special state for the user
+# TODO: save data per user
+# TODO: move the rest of state from bot to users
+# TODO: schedule next sample
+# TODO: decide when to save the user state data to disk and implement it
+# TODO: load the saved user state data at init
+# TODO: add handling of non-answered sample
 
 
 class User():
@@ -68,53 +74,88 @@ class DataBase():
 
     def is_user_room_registered(self, user_id):
         """Currently a user is registered if there exists a subdirectory in the data directory with the same same and the ID of the user"""
-        if self.user_data.get(user_id).get("room_id"):
+        if self.user_data.get(user_id).get(KEY_ROOM):
             return True
+        else:
+            return False
 
     def is_user_registered(self, user_id):
         return user_id in self.user_data.keys()
 
     def register_user(self, user_id, room_id):
         user_dict = {}
-        user_dict["new_room_id"] = room_id
+        user_dict[KEY_NEW_ROOM] = room_id
+        user_dict[KEY_RATE] = 45.0
         self.user_data[user_id] = user_dict
         logging.info("Registered user {},{}".format(user_id, user_dict))
 
     def save_user_states(self):
-        state_file_path = DATA_DIR.joinpath("user_states.json")
-        with open(state_file_path) as state_file:
-            state_dict = json.load(state_file)
-            state_dict["room_id"] = room_id
-            json.dump(state_dict, state_file)
+        with open(USER_STATES_PATH, 'w') as fp:
+            json.dump(self.user_data, fp)
+
+    def load_user_states(self):
+        with open(USER_STATES_PATH, 'r') as fp:
+            self.user_data = json.load(fp)
 
     def switch_room(self, user_id, room_id):
         pass
 
     def switch_to_new_room(self, user_id):
-        self.user_data["room_id"] = self.user_data.get("new_room_id")
+        new_room_id = self.user_data.get(user_id).get(KEY_NEW_ROOM)
+        self.user_data[user_id][KEY_ROOM] = new_room_id
 
     def get_room_user(self, room_id):
         for user_id in self.user_data.keys():
-            if self.user_data[user_id].get("room_id") == room_id:
+            if self.user_data[user_id].get(KEY_ROOM) == room_id:
                 return(user_id)
 
     def get_new_room_user(self, room_id):
         for user_id in self.user_data.keys():
-            if self.user_data[user_id].get("new_room_id") == room_id:
+            if self.user_data[user_id].get(KEY_NEW_ROOM) == room_id:
                 return(user_id)
 
     def set_user_state(self, user_id, state):
-        self.user_data[user_id]["state"] = state
+        self.user_data[user_id][KEY_STATE] = state
 
     def get_user_state(self, user_id):
-        return self.user_data.get(user_id).get("state")
+        return self.user_data.get(user_id).get(KEY_STATE)
+
+    def get_user_file_path(self, user_id):
+        user_file_path = DATA_DIR.joinpath("{}.csv".format(user_id))
+        return user_file_path
+
+    def get_rate(self, user_id):
+        logging.info(self.user_data)
+        return self.user_data.get(user_id).get(KEY_RATE)
+
+    def set_rate(self, user_id, rate):
+        self.user_data[user_id][KEY_RATE] = rate
+
+    def save_data(self, user_id, label):
+        user_file_path = self.get_user_file_path(user_id)
+        with open(user_file_path, 'a') as f:
+            # TODO: use time when question was asked instead?
+            timestamp = str(datetime.now())
+            poisson_process_rate = self.user_data.get(user_id).get(KEY_RATE)
+            line_format_str = "{}, {}, {}\n"
+            line = line_format_str.format(timestamp,
+                                          label,
+                                          poisson_process_rate)
+            f.write(line)
+        logging.info("Saving data '{}' to {}".format(line, user_file_path))
+
+    def get_next_sample_time(self, user_id):
+        return self.user_data.get(user_id).get(KEY_NEXT_SAMPLE_TIME)
+
+    def set_next_sample_time(self, user_id, next_sample_time):
+        self.user_data[user_id][KEY_NEXT_SAMPLE_TIME] = next_sample_time
 
 
 class Bot():
     def __init__(self):
         pass
 
-    async def init(self, homeserver, bot_id, bot_pw, room_id, user_id):
+    async def init(self, homeserver, bot_id, bot_pw):
         client_config = AsyncClientConfig(
             max_limit_exceeded=0,
             max_timeouts=0,
@@ -130,13 +171,7 @@ class Bot():
             config=client_config
         )
         self.database = DataBase()
-        logging.info(self.client.access_token)
         await self.client.login(bot_pw)
-        logging.info(self.client.access_token)
-        self.room_id = room_id
-        self.user_id = user_id
-        self.poisson_process_rate = 45  # minutes
-        self.next_sample_time = 0  # set after user activity input
         self.client.add_event_callback(self.message_callback, RoomMessageText)
         self.client.add_event_callback(self.invite_callback, InviteMemberEvent)
         self.client.add_event_callback(self.room_member_callback, RoomMemberEvent)
@@ -154,26 +189,30 @@ class Bot():
 
     async def room_create_callback(self, room, event):
         logging.info(event)
+        await self.handle_room_join(room.room_id)
 
     async def handle_room_join(self, room_id):
-        await self.send_room_message("hejhejhej", room_id)
         room_user = self.database.get_new_room_user(room_id)
         if self.database.is_user_room_registered(room_user):
+            logging.info("User {} already registered with room {}".format(room_user, room_id))
             await self.propose_to_switch_room(room_user, room_id)
         else:
             self.database.switch_to_new_room(room_user)
             await self.send_room_message(WELCOME_STR, room_id)
             await self.collect_user_activity(room_user, room_id)
-            # TODO: schedule next sample
-            # TODO: decide when to save the user data to disk and implement it
-            # TODO: read the saved user data
-            # TODO: add handling of non-answered sample
 
     async def room_member_callback(self, room, event):
-        logging.info(event)
+        if event.membership == "leave":
+            logging.info(self.database.user_data)
+            user_id = self.database.get_room_user(room.room_id)
+            if event.state_key == user_id:
+                logging.info("Leaving room {}".format(room.room_id))
+                await self.client.room_leave(room.room_id)
         # Did the bot join a new room?
-        if event.state_key == self.user_id and event.membership == "join":
-            await self.handle_room_join(room.room_id)
+        elif event.state_key == self.client.user_id and event.membership == "join":
+            # Apparently this can happen more than once after joining a room
+            logging.info(event.content)
+            logging.info(await self.client.joined_rooms())
 
     async def invite_callback(self, room, event):
         logging.info(event)
@@ -186,6 +225,7 @@ class Bot():
             else:
                 logging.info("Joined room {}".format(room.room_id))
                 self.database.register_user(event.sender, room.room_id)
+                break
 
     def is_simple_phrase(self, msg):
         ret = False
@@ -204,19 +244,6 @@ class Bot():
             ret = True
         return ret
 
-    def save_data(self, label):
-        with open(DATA_FILENAME, 'a') as f:
-            timestamp = str(datetime.now())
-            line = "{}, {}, {}\n".format(timestamp,
-                                         label,
-                                         self.poisson_process_rate)
-            f.write(line)
-        logging.info("Saving data '{}'".format(line))
-
-    def set_rate(self, rate):
-        self.poisson_process_rate = rate
-        logging.info("Setting rate to {}".format(rate))
-
     async def send_help_message(self, room_id):
         # TODO: don't hardcode this
         help_str = """Available inputs:
@@ -234,6 +261,8 @@ get data - get a download link for the data
 This is a bot to collect user activity with sampling according to a Poisson process. Every now and then it will ask what you are up to and record it. Reply with a string of whitespace separated words. To see other available input, send 'help'.
         
 The data saved at each sample is the timestamp, the string provided by the user and the currently set rate of the Poisson process.
+
+Currently maintained at https://github.com/fwerpers/timeprof.
         """
         await self.send_room_message(info_str, room_id)
 
@@ -265,16 +294,14 @@ The data saved at each sample is the timestamp, the string provided by the user 
             ret = True
         return ret
 
-    def set_sample_rate(self, rate):
-        self.poisson_process_rate = rate
-
     async def handle_set_rate_message(self, msg, room_id):
         ret = False
         re_pattern = r"^set rate (\d+)$"
         m = re.match(re_pattern, msg)
         if m is not None:
             rate = m.groups()[0]
-            self.set_sample_rate(float(rate))
+            user_id = self.database.get_room_user(room_id)
+            self.database.set_rate(user_id, float(rate))
             resp = "Updated rate to {}".format(rate)
             await self.send_room_message(resp, room_id)
             ret = True
@@ -283,7 +310,9 @@ The data saved at each sample is the timestamp, the string provided by the user 
     async def handle_get_rate_message(self, msg, room_id):
         ret = False
         if msg == "get rate":
-            response = "Current rate is {}".format(self.poisson_process_rate)
+            user_id = self.database.get_room_user(room_id)
+            rate = self.database.get_rate(user_id)
+            response = "Current rate is {}".format(rate)
             await self.send_room_message(response, room_id)
             ret = True
         return ret
@@ -291,7 +320,9 @@ The data saved at each sample is the timestamp, the string provided by the user 
     async def handle_get_next_sample_time(self, msg, room_id):
         ret = False
         if msg == "get next":
-            response = "Next sample scheduled for {}".format(self.next_sample_time)
+            user_id = self.database.get_room_user(room_id)
+            next_sample_time = self.database.get_next_sample_time(user_id)
+            response = "Next sample scheduled for {}".format(next_sample_time)
             await self.send_room_message(response, room_id)
             ret = True
         return ret
@@ -312,9 +343,9 @@ The data saved at each sample is the timestamp, the string provided by the user 
         await self.wait_until(dt)
         return await coro
 
-    def get_next_sample_time(self):
+    def get_next_sample_time(self, rate):
         time_now = datetime.now()
-        interval = np.ceil(np.random.exponential(scale=self.poisson_process_rate))
+        interval = np.ceil(np.random.exponential(scale=rate))
         next_sample_dt = time_now + timedelta(minutes=interval)
         return next_sample_dt
 
@@ -322,11 +353,12 @@ The data saved at each sample is the timestamp, the string provided by the user 
         if self.is_activity_string(msg):
             resp = "Cool, I'll remember that >:)"
             await self.send_room_message(resp, room_id)
-            self.save_data(msg)
+            self.database.save_data(user_id, msg)
             self.database.set_user_state(user_id, STATE_NONE)
             loop = asyncio.get_event_loop()
-            next_sample_dt = self.get_next_sample_time()
-            self.next_sample_time = next_sample_dt
+            rate = self.database.get_rate(user_id)
+            next_sample_dt = self.get_next_sample_time(rate)
+            self.database.set_next_sample_time(user_id, next_sample_dt)
             loop.create_task(self.run_at(next_sample_dt, self.collect_user_activity(user_id, room_id)))
         else:
             err_str = "Expected lowercase words, not '{}'".format(msg)
@@ -374,11 +406,16 @@ The data saved at each sample is the timestamp, the string provided by the user 
             await self.handle_command(msg, room_id)
 
     async def message_callback(self, room, event):
-        msg = event.body
-        if self.database.is_user_registered(event.sender):
-            await self.handle_message(msg, event.sender, room.room_id)
-        else:
-            logging.info("Discarding message {}".format(msg))
+        try:
+            msg = event.body
+            if self.database.is_user_registered(event.sender):
+                await self.handle_message(msg, event.sender, room.room_id)
+            else:
+                logging.info("Discarding message {}".format(msg))
+        except:
+            resp = "Sorry, there was en error. Contact the developer :("
+            await self.send_room_message(resp, room.room_id)
+            raise
 
     async def send_room_message(self, msg, room_id):
         await self.client.room_send(
@@ -392,12 +429,14 @@ The data saved at each sample is the timestamp, the string provided by the user 
         )
 
     async def send_data(self, room_id):
-        file_stat = await aiofiles.os.stat(DATA_FILENAME)
-        async with aiofiles.open(DATA_FILENAME, "r+b") as f:
+        user_id = self.database.get_room_user(room_id)
+        file_path = self.database.get_user_file_path(user_id)
+        file_stat = await aiofiles.os.stat(file_path)
+        async with aiofiles.open(file_path, "r+b") as f:
             resp, maybe_keys = await self.client.upload(
                 f,
                 content_type="test/plain",
-                filename=DATA_FILENAME,
+                filename=file_path,
                 filesize=file_stat.st_size
             )
         await self.client.room_send(
@@ -417,12 +456,7 @@ async def main():
     logging.info("Initialising bot")
     await bot.init(HOMESERVER,
                    BOT_USER_ID,
-                   pw,
-                   FWERPERS_ROOM_ID,
-                   FWERPERS_USER_ID)
-    #await bot.send_message("Hello from TimeProf =D")
-    #await bot.send_message("Send 'help' for possible input")
-    #await bot.collect_user_activity()
+                   pw)
     await bot.client.sync_forever(timeout=10000)
     await bot.client.close()
 
