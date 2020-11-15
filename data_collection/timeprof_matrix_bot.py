@@ -44,17 +44,14 @@ JOIN_ATTEMPT_LIMIT = 3
 WELCOME_STR = """Hello from TimeProf =D
 Type 'help' to see available inputs"""
 
+# TODO: should be bot nofity each user when it shuts down and when it starts?
 # TODO: add ability to get data summary
-# TODO: add ability to get the csv file
 # TODO: add ability to get data vis image
 # TODO: set up to run on Raspberry Pi
-# TODO: if a user leaves a room, also leave the room. Possibly save some special state for the user
-# TODO: save data per user
-# TODO: move the rest of state from bot to users
-# TODO: schedule next sample
 # TODO: decide when to save the user state data to disk and implement it
-# TODO: load the saved user state data at init
+# TODO: load the saved user state data at init. Make sure the room switch sequence works as intended
 # TODO: add handling of non-answered sample
+# TODO: continuously re-reschedule sampling
 
 
 class User():
@@ -96,9 +93,6 @@ class DataBase():
     def load_user_states(self):
         with open(USER_STATES_PATH, 'r') as fp:
             self.user_data = json.load(fp)
-
-    def switch_room(self, user_id, room_id):
-        pass
 
     def switch_to_new_room(self, user_id):
         new_room_id = self.user_data.get(user_id).get(KEY_NEW_ROOM)
@@ -366,7 +360,7 @@ Currently maintained at https://github.com/fwerpers/timeprof.
 
     async def handle_room_switch_message(self, msg, user_id, room_id):
         if msg == "yes":
-            self.database.switch_room(user_id, room_id)
+            self.database.switch_to_new_room(user_id, room_id)
             self.database.set_user_state(user_id, STATE_NONE)
         elif msg == "no":
             await self.send_room_message("Ok, I'm out", room_id)
