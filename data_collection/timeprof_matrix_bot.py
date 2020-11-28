@@ -7,7 +7,8 @@ from nio import (
     JoinError,
     AsyncClientConfig,
     RoomMemberEvent,
-    RoomCreateEvent
+    RoomCreateEvent,
+    RoomLeaveError
 )
 import time
 import re
@@ -23,8 +24,6 @@ import json
 
 HOMESERVER = "https://matrix.org"
 BOT_USER_ID = "@timeprof_bot:matrix.org"
-MSG_TIME_LIMIT_MS = 5e3
-MS_PER_S = 1e3
 
 STATE_NONE = 0
 STATE_ACTIVITY_WAIT = 1
@@ -41,17 +40,16 @@ DATA_DIR = PATH_TO_THIS_DIR.joinpath("data")
 USER_STATES_PATH = DATA_DIR.joinpath("user_states.json")
 
 JOIN_ATTEMPT_LIMIT = 3
+LEAVE_ROOM_ATTEMPT_LIMIT = 10
 WELCOME_STR = """Hello from TimeProf =D
 Type 'help' to see available inputs"""
 
-# TODO: should be bot nofity each user when it shuts down and when it starts?
 # TODO: add ability to get data summary
 # TODO: add ability to get data vis image
 # TODO: set up to run on Raspberry Pi
-# TODO: decide when to save the user state data to disk and implement it
-# TODO: load the saved user state data at init. Make sure the room switch sequence works as intended
-# TODO: add handling of non-answered sample
-# TODO: continuously re-reschedule sampling
+# TODO: make sure the room switch sequence works as intended
+# TODO: user csv package to save the data
+# TODO: what happens if the bot is in both room switch and activity wait state for a user?
 
 
 class User():
@@ -70,8 +68,7 @@ class DataBase():
         self.user_data = {}
 
     def is_user_room_registered(self, user_id):
-        """Currently a user is registered if there exists a subdirectory in the data directory with the same same and the ID of the user"""
-        if self.user_data.get(user_id).get(KEY_ROOM):
+        if self.get_room(user_id):
             return True
         else:
             return False
@@ -79,20 +76,35 @@ class DataBase():
     def is_user_registered(self, user_id):
         return user_id in self.user_data.keys()
 
-    def register_user(self, user_id, room_id):
+    def is_user_registered(self, user_id):
+        return user_id in self.user_data
+
+    def register_user(self, user_id):
         user_dict = {}
-        user_dict[KEY_NEW_ROOM] = room_id
+        user_dict[KEY_NEW_ROOM] = None
         user_dict[KEY_RATE] = 45.0
+        user_dict[KEY_NEXT_SAMPLE_TIME] = None
+        user_dict[KEY_STATE] = STATE_NONE
         self.user_data[user_id] = user_dict
         logging.info("Registered user {},{}".format(user_id, user_dict))
 
+    def add_new_room(self, user_id, room_id):
+        self.user_data[user_id][KEY_NEW_ROOM] = room_id
+
     def save_user_states(self):
         with open(USER_STATES_PATH, 'w') as fp:
-            json.dump(self.user_data, fp)
+            user_data_str = self.user_data
+            for user_id in user_data_str.keys():
+                user_data_str[user_id][KEY_NEXT_SAMPLE_TIME] = self.user_data[user_id][KEY_NEXT_SAMPLE_TIME].isoformat()
+            json.dump(user_data_str, fp)
 
     def load_user_states(self):
-        with open(USER_STATES_PATH, 'r') as fp:
-            self.user_data = json.load(fp)
+        if USER_STATES_PATH.exists():
+            with open(USER_STATES_PATH, 'r') as fp:
+                user_data_str = json.load(fp)
+                self.user_data = user_data_str
+                for user_id in self.user_data.keys():
+                    self.user_data[user_id][KEY_NEXT_SAMPLE_TIME] = datetime.fromisoformat(user_data_str[user_id][KEY_NEXT_SAMPLE_TIME])
 
     def switch_to_new_room(self, user_id):
         new_room_id = self.user_data.get(user_id).get(KEY_NEW_ROOM)
@@ -100,19 +112,24 @@ class DataBase():
 
     def get_room_user(self, room_id):
         for user_id in self.user_data.keys():
-            if self.user_data[user_id].get(KEY_ROOM) == room_id:
+            if self.get_room(user_id) == room_id:
                 return(user_id)
+
+    def get_room(self, user_id):
+        room_id = self.user_data[user_id].get(KEY_ROOM)
+        return room_id
 
     def get_new_room_user(self, room_id):
         for user_id in self.user_data.keys():
             if self.user_data[user_id].get(KEY_NEW_ROOM) == room_id:
                 return(user_id)
 
-    def set_user_state(self, user_id, state):
-        self.user_data[user_id][KEY_STATE] = state
-
     def get_user_state(self, user_id):
         return self.user_data.get(user_id).get(KEY_STATE)
+
+    def set_user_state(self, user_id, state):
+        self.user_data[user_id][KEY_STATE] = state
+        self.save_user_states()
 
     def get_user_file_path(self, user_id):
         user_file_path = DATA_DIR.joinpath("{}.csv".format(user_id))
@@ -124,12 +141,13 @@ class DataBase():
 
     def set_rate(self, user_id, rate):
         self.user_data[user_id][KEY_RATE] = rate
+        self.save_user_states()
 
-    def save_data(self, user_id, label):
+    def save_sample(self, user_id, sample_time, label):
         user_file_path = self.get_user_file_path(user_id)
         with open(user_file_path, 'a') as f:
             # TODO: use time when question was asked instead?
-            timestamp = str(datetime.now())
+            timestamp = str(sample_time)
             poisson_process_rate = self.user_data.get(user_id).get(KEY_RATE)
             line_format_str = "{}, {}, {}\n"
             line = line_format_str.format(timestamp,
@@ -143,13 +161,14 @@ class DataBase():
 
     def set_next_sample_time(self, user_id, next_sample_time):
         self.user_data[user_id][KEY_NEXT_SAMPLE_TIME] = next_sample_time
+        self.save_user_states()
 
 
 class Bot():
     def __init__(self):
         pass
 
-    async def init(self, homeserver, bot_id, bot_pw):
+    async def init(self, homeserver, bot_id, bot_pw, leave_all_rooms=False):
         client_config = AsyncClientConfig(
             max_limit_exceeded=0,
             max_timeouts=0,
@@ -165,16 +184,65 @@ class Bot():
             config=client_config
         )
         self.database = DataBase()
+        self.database.load_user_states()
+        self.sync_next_sample_times()
         await self.client.login(bot_pw)
+        await self.log_joined_rooms()
+        if leave_all_rooms:
+            await self.leave_all_rooms()
         self.client.add_event_callback(self.message_callback, RoomMessageText)
         self.client.add_event_callback(self.invite_callback, InviteMemberEvent)
         self.client.add_event_callback(self.room_member_callback, RoomMemberEvent)
         self.client.add_event_callback(self.room_create_callback, RoomCreateEvent)
         logging.info("Initialised bot")
 
+    async def log_joined_rooms(self):
+        joined_rooms_resp = await self.client.joined_rooms()
+        logging.info(joined_rooms_resp)
+
+    async def leave_all_rooms(self):
+        joined_rooms_resp = await self.client.joined_rooms()
+        for room_id in joined_rooms_resp.rooms:
+            logging.info("Leaving room {}".format(room_id))
+            for i in range(LEAVE_ROOM_ATTEMPT_LIMIT):
+                resp = await self.client.room_leave(room_id)
+                logging.info(resp)
+                if isinstance(resp, RoomLeaveError):
+                    await asyncio.sleep(resp.retry_after_ms * 1e-3)
+                else:
+                    break
+
+    def sync_next_sample_times(self):
+        for user_id in self.database.user_data.keys():
+            self.sync_next_sample_time(user_id)
+
+    def sync_next_sample_time(self, user_id):
+        next_sample_time = self.database.get_next_sample_time(user_id)
+        time_now = datetime.now()
+        rate = self.database.get_rate(user_id)
+        room_id = self.database.get_room(user_id)
+        # TODO: do this in a cleaner way. Should next_sample_time ever be None?
+        if next_sample_time is None:
+            new_sample_time = self.create_next_sample_time(time_now, rate)
+        else:
+            new_sample_time = next_sample_time
+            while new_sample_time <= time_now:
+                time_now = datetime.now()
+                logging.info("Saving placeholder sample")
+                self.database.save_sample(user_id, new_sample_time, "EMPTY (BOT OFF)")
+                new_sample_time = self.create_next_sample_time(new_sample_time, rate)
+        self.schedule_next_sample(user_id, room_id, new_sample_time)
+
     async def collect_user_activity(self, user_id, room_id):
+        if self.database.get_user_state(user_id) == STATE_ACTIVITY_WAIT:
+            await self.send_room_message("Previous sample unanswered, saving placeholder label...")
+            sample_time = self.database.get_next_sample_time(user_id)
+            self.database.save_sample(user_id, sample_time, "EMPTY")
         await self.send_room_message("What's up?", room_id)
         self.database.set_user_state(user_id, STATE_ACTIVITY_WAIT)
+        rate = self.database.get_rate(user_id)
+        new_sample_time = self.create_next_sample_time(new_sample_time, rate)
+        self.schedule_next_sample(user_id, room_id, new_sample_time)
 
     async def propose_to_switch_room(self, user_id, room_id):
         resp = "Hello {}, you are already registered. Want to move the conversation to this room?".format(user_id)
@@ -186,14 +254,17 @@ class Bot():
         await self.handle_room_join(room.room_id)
 
     async def handle_room_join(self, room_id):
-        room_user = self.database.get_new_room_user(room_id)
-        if self.database.is_user_room_registered(room_user):
-            logging.info("User {} already registered with room {}".format(room_user, room_id))
-            await self.propose_to_switch_room(room_user, room_id)
+        user_id = self.database.get_new_room_user(room_id)
+        if self.database.is_user_room_registered(user_id):
+            logging.info("User {} already registered with room {}".format(user_id, room_id))
+            await self.propose_to_switch_room(user_id, room_id)
         else:
-            self.database.switch_to_new_room(room_user)
+            self.database.switch_to_new_room(user_id)
             await self.send_room_message(WELCOME_STR, room_id)
-            await self.collect_user_activity(room_user, room_id)
+            rate = self.database.get_rate(user_id)
+            time_now = datetime.now()
+            next_sample_time = self.create_next_sample_time(time_now, rate)
+            self.schedule_next_sample(user_id, room_id, next_sample_time)
 
     async def room_member_callback(self, room, event):
         if event.membership == "leave":
@@ -218,7 +289,11 @@ class Bot():
                 logging.info("Failed to join room {}: {}".format(room.room_id, resp.message))
             else:
                 logging.info("Joined room {}".format(room.room_id))
-                self.database.register_user(event.sender, room.room_id)
+                user_id = event.sender
+                if self.database.is_user_registered(user_id):
+                    self.database.add_new_room(user_id, room.room_id)
+                else:
+                    self.database.register_user(user_id)
                 break
 
     def is_simple_phrase(self, msg):
@@ -337,23 +412,23 @@ Currently maintained at https://github.com/fwerpers/timeprof.
         await self.wait_until(dt)
         return await coro
 
-    def get_next_sample_time(self, rate):
-        time_now = datetime.now()
+    def create_next_sample_time(self, prev_sample_time, rate):
         interval = np.ceil(np.random.exponential(scale=rate))
-        next_sample_dt = time_now + timedelta(minutes=interval)
-        return next_sample_dt
+        next_sample_time = prev_sample_time + timedelta(minutes=interval)
+        return next_sample_time
+
+    def schedule_next_sample(self, user_id, room_id, sample_time):
+        loop = asyncio.get_event_loop()
+        self.database.set_next_sample_time(user_id, sample_time)
+        loop.create_task(self.run_at(sample_time, self.collect_user_activity(user_id, room_id)))
 
     async def handle_activity_message(self, msg, user_id, room_id):
         if self.is_activity_string(msg):
             resp = "Cool, I'll remember that >:)"
             await self.send_room_message(resp, room_id)
-            self.database.save_data(user_id, msg)
+            time_now = datetime.now()
+            self.database.save_sample(user_id, time_now, msg)
             self.database.set_user_state(user_id, STATE_NONE)
-            loop = asyncio.get_event_loop()
-            rate = self.database.get_rate(user_id)
-            next_sample_dt = self.get_next_sample_time(rate)
-            self.database.set_next_sample_time(user_id, next_sample_dt)
-            loop.create_task(self.run_at(next_sample_dt, self.collect_user_activity(user_id, room_id)))
         else:
             err_str = "Expected lowercase words, not '{}'".format(msg)
             await self.send_room_message(err_str, room_id)
@@ -390,8 +465,8 @@ Currently maintained at https://github.com/fwerpers/timeprof.
             await self.send_room_message(response_msg, room_id)
 
     async def handle_message(self, msg, user_id, room_id):
-        logging.info("Handling valid message '{}'".format(msg))
         state = self.database.get_user_state(user_id)
+        logging.info("Handling valid message '{}' in state {}".format(msg, state))
         if state == STATE_ACTIVITY_WAIT:
             await self.handle_activity_message(msg, user_id, room_id)
         elif state == STATE_ROOM_SWITCH_WAIT:
@@ -422,6 +497,11 @@ Currently maintained at https://github.com/fwerpers/timeprof.
             ignore_unverified_devices=True
         )
 
+    async def send_to_all_registered_users(self, msg):
+        for user_id in self.database.user_data.keys():
+            room_id = self.database.get_room(user_id)
+            await self.send_room_message(msg, room_id)
+
     async def send_data(self, room_id):
         user_id = self.database.get_room_user(room_id)
         file_path = self.database.get_user_file_path(user_id)
@@ -450,8 +530,17 @@ async def main():
     logging.info("Initialising bot")
     await bot.init(HOMESERVER,
                    BOT_USER_ID,
-                   pw)
-    await bot.client.sync_forever(timeout=10000)
+                   pw,
+                   leave_all_rooms=True)
+    try:
+        await bot.client.sync_forever(timeout=10000)
+    except:
+        try:
+            await bot.database.save_user_states()
+            await bot.send_to_all_registered_users("There was a problem. Shutting down...")
+        except:
+            pass
+        raise
     await bot.client.close()
 
 
