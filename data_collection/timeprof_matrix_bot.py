@@ -20,6 +20,7 @@ import aiofiles.os
 from datetime import (datetime, timedelta)
 from pathlib import Path
 import json
+import copy
 
 
 HOMESERVER = "https://matrix.org"
@@ -44,6 +45,23 @@ LEAVE_ROOM_ATTEMPT_LIMIT = 10
 WELCOME_STR = """Hello from TimeProf =D
 Type 'help' to see available inputs"""
 
+
+INFO_STR = """
+This is a bot to collect user activity with sampling according to a Poisson process. Every now and then it will ask what you are up to and record it. Reply with a string of whitespace separated words. To see other available input, send 'help'.
+        
+The data saved at each sample is the timestamp, the string provided by the user and the currently set rate of the Poisson process.
+
+Currently maintained at https://github.com/fwerpers/timeprof.
+        """
+
+HELP_STR = """Available inputs:
+-help - this message
+-info - description of the bot
+-set rate <rate> - set rate (minutes) of sampling process. Must be an integer
+-get rate - get current rate
+-get next - get time of next sample
+-get data - get a download link for the data
+-        """
 # TODO: add ability to get data summary
 # TODO: add ability to get data vis image
 # TODO: set up to run on Raspberry Pi
@@ -51,6 +69,70 @@ Type 'help' to see available inputs"""
 # TODO: user csv package to save the data
 # TODO: what happens if the bot is in both room switch and activity wait state for a user?
 
+class Argument():
+    def __init__(self, name, regex):
+        self.name = name
+        self.regex = regex
+
+class Command():
+    def __init__(self, name, func, help_str):
+        self.name = name
+        self.func = func
+        self.args = []
+        self.help_str = help_str
+
+    def add_argument(self, name, regex):
+        arg = Argument(name, regex)
+        self.args.append(arg)
+
+    def add_help_entry(self, help_str):
+        self.help_str = help_str
+
+    def get_help_entry(self):
+        return self.help_str
+
+    def is_simple_command(self):
+        if len(self.args) > 0:
+            return False
+        else:
+            return True
+
+    async def __call__(self, msg, room_id):
+        # TODO: make more general by using commented code below
+        return await self.func(msg, room_id)
+        
+        # Catch command name followed by eventual whitespace
+        # and arbitrary characters
+        #regex = r"^{}( (.*))?".format(self.name)
+        #m = re.match(regex, msg)
+        #if m is None:
+            #return False
+        #elif self.is_simple_command():
+            #if m.group(1) is None:
+                #await self.func(msg, room_id)
+                #return True
+            #else:
+                #return False
+                # TODO: send message that no extra characters are expected except from the command name. Could add an arbitrary number of whitespaces after the base command (and between arguments)
+        #else:
+            #cmd_args = m.group(2)
+            #if cmd_args is None:
+                #return False
+            #else:
+                ## TODO: match with arguments
+                #grouped_args = ["({})".format(arg) for arg in self.args]
+                #arg_regex = " ".join(grouped_args)
+                #re.match(arg_regex, cmd_args) 
+                #return False
+           # 
+       # 
+        #if len(self.args) > 0:
+            #regex = "{} (.*)"
+            #for arg in self.args:
+                #regex = "{} {}".format(regex, arg.regex)
+        #else:
+            #re.match(regex, msg)
+        
 
 class User():
     def __init__(self):
@@ -93,18 +175,22 @@ class DataBase():
 
     def save_user_states(self):
         with open(USER_STATES_PATH, 'w') as fp:
-            user_data_str = self.user_data
+            user_data_str = copy.deepcopy(self.user_data)
             for user_id in user_data_str.keys():
-                user_data_str[user_id][KEY_NEXT_SAMPLE_TIME] = self.user_data[user_id][KEY_NEXT_SAMPLE_TIME].isoformat()
+                logging.info(self.get_next_sample_time(user_id))
+                #assert isinstance(self.user_data[user_id][KEY_NEXT_SAMPLE_TIME], datetime)
+                user_data_str[user_id][KEY_NEXT_SAMPLE_TIME] = self.get_next_sample_time(user_id).isoformat()
             json.dump(user_data_str, fp)
 
     def load_user_states(self):
         if USER_STATES_PATH.exists():
             with open(USER_STATES_PATH, 'r') as fp:
                 user_data_str = json.load(fp)
-                self.user_data = user_data_str
+                self.user_data = copy.deepcopy(user_data_str)
                 for user_id in self.user_data.keys():
-                    self.user_data[user_id][KEY_NEXT_SAMPLE_TIME] = datetime.fromisoformat(user_data_str[user_id][KEY_NEXT_SAMPLE_TIME])
+                    self.set_next_sample_time(
+                        user_id,
+                        datetime.fromisoformat(user_data_str[user_id][KEY_NEXT_SAMPLE_TIME]))
 
     def switch_to_new_room(self, user_id):
         new_room_id = self.user_data.get(user_id).get(KEY_NEW_ROOM)
@@ -157,10 +243,14 @@ class DataBase():
         logging.info("Saving data '{}' to {}".format(line, user_file_path))
 
     def get_next_sample_time(self, user_id):
-        return self.user_data.get(user_id).get(KEY_NEXT_SAMPLE_TIME)
+        next_sample_time = self.user_data.get(user_id).get(KEY_NEXT_SAMPLE_TIME)
+        assert isinstance(next_sample_time, datetime)
+        return next_sample_time
 
     def set_next_sample_time(self, user_id, next_sample_time):
+        assert isinstance(next_sample_time, datetime)
         self.user_data[user_id][KEY_NEXT_SAMPLE_TIME] = next_sample_time
+        logging.info(type(next_sample_time))
         self.save_user_states()
 
 
@@ -190,11 +280,24 @@ class Bot():
         await self.log_joined_rooms()
         if leave_all_rooms:
             await self.leave_all_rooms()
+        self.add_commands()
         self.client.add_event_callback(self.message_callback, RoomMessageText)
         self.client.add_event_callback(self.invite_callback, InviteMemberEvent)
         self.client.add_event_callback(self.room_member_callback, RoomMemberEvent)
         self.client.add_event_callback(self.room_create_callback, RoomCreateEvent)
         logging.info("Initialised bot")
+
+    def add_commands(self):
+        self.commands = [
+            Command("help", self.handle_help_message, "list commands (this message)"),    
+            Command("info", self.handle_info_message, "info about the bot"),
+            Command("get data", self.handle_get_data, "get a download link for the data"),
+            Command("get next", self.handle_get_next_sample_time, "get time of next sample"),
+            Command("get rate", self.handle_get_rate_message, "get current rate")
+        ]
+        set_rate_cmd = Command("set rate", self.handle_set_rate_message, "set rate (minutes) of sampling process")
+        set_rate_cmd.add_argument("rate", r"\d+")
+        self.commands.append(set_rate_cmd)
 
     async def log_joined_rooms(self):
         joined_rooms_resp = await self.client.joined_rooms()
@@ -315,14 +418,9 @@ class Bot():
 
     async def send_help_message(self, room_id):
         # TODO: don't hardcode this
-        help_str = """Available inputs:
-help - this message
-info - description of the bot
-set rate <rate> - set rate (minutes) of sampling process. Must be an integer
-get rate - get current rate
-get next - get time of next sample
-get data - get a download link for the data
-        """
+        help_str = ""
+        for command in self.commands:
+            help_str += "{} - {}\n".format(command.name, command.get_help_entry())
         await self.send_room_message(help_str, room_id)
 
     async def send_info_message(self, room_id):
@@ -351,6 +449,7 @@ Currently maintained at https://github.com/fwerpers/timeprof.
 
     async def handle_info_message(self, msg, room_id):
         ret = False
+        logging.info(msg)
         if msg == "info":
             await self.send_info_message(room_id)
             ret = True
@@ -365,6 +464,7 @@ Currently maintained at https://github.com/fwerpers/timeprof.
 
     async def handle_set_rate_message(self, msg, room_id):
         ret = False
+        logging.info(msg)
         re_pattern = r"^set rate (\d+)$"
         m = re.match(re_pattern, msg)
         if m is not None:
@@ -435,7 +535,8 @@ Currently maintained at https://github.com/fwerpers/timeprof.
 
     async def handle_room_switch_message(self, msg, user_id, room_id):
         if msg == "yes":
-            self.database.switch_to_new_room(user_id, room_id)
+            await self.send_room_message("Ok, let's keep talking here", room_id)
+            self.database.switch_to_new_room(user_id)
             self.database.set_user_state(user_id, STATE_NONE)
         elif msg == "no":
             await self.send_room_message("Ok, I'm out", room_id)
@@ -446,21 +547,14 @@ Currently maintained at https://github.com/fwerpers/timeprof.
             await self.send_room_message(err_str, room_id)
 
     async def handle_command(self, msg, room_id):
-        if (await self.handle_help_message(msg, room_id)):
-            pass
-        elif (await self.handle_info_message(msg, room_id)):
-            pass
-        elif (await self.handle_data_summary_message(msg, room_id)):
-            pass
-        elif (await self.handle_set_rate_message(msg, room_id)):
-            pass
-        elif (await self.handle_get_rate_message(msg, room_id)):
-            pass
-        elif (await self.handle_get_next_sample_time(msg, room_id)):
-            pass
-        elif (await self.handle_get_data(msg, room_id)):
-            pass
-        else:
+        command_recognized = False
+        for command in self.commands:
+            if await command(msg, room_id):
+                command_recognized = True
+                break
+        #if await self.handle_set_rate_message(msg, room_id):
+            #command_recognized = True
+        if not command_recognized:
             response_msg = "'{}' is not valid input. Send 'help' to list valid input".format(msg)
             await self.send_room_message(response_msg, room_id)
 
@@ -536,8 +630,8 @@ async def main():
         await bot.client.sync_forever(timeout=10000)
     except:
         try:
-            await bot.database.save_user_states()
             await bot.send_to_all_registered_users("There was a problem. Shutting down...")
+            await bot.database.save_user_states()
         except:
             pass
         raise
