@@ -178,7 +178,6 @@ class DataBase():
             user_data_str = copy.deepcopy(self.user_data)
             for user_id in user_data_str.keys():
                 logging.info(self.get_next_sample_time(user_id))
-                #assert isinstance(self.user_data[user_id][KEY_NEXT_SAMPLE_TIME], datetime)
                 user_data_str[user_id][KEY_NEXT_SAMPLE_TIME] = self.get_next_sample_time(user_id).isoformat()
             json.dump(user_data_str, fp)
 
@@ -244,7 +243,7 @@ class DataBase():
 
     def get_next_sample_time(self, user_id):
         next_sample_time = self.user_data.get(user_id).get(KEY_NEXT_SAMPLE_TIME)
-        assert isinstance(next_sample_time, datetime)
+        assert isinstance(next_sample_time, datetime), "{}".format(type(next_sample_time))
         return next_sample_time
 
     def set_next_sample_time(self, user_id, next_sample_time):
@@ -323,7 +322,6 @@ class Bot():
         next_sample_time = self.database.get_next_sample_time(user_id)
         time_now = datetime.now()
         rate = self.database.get_rate(user_id)
-        room_id = self.database.get_room(user_id)
         # TODO: do this in a cleaner way. Should next_sample_time ever be None?
         if next_sample_time is None:
             new_sample_time = self.create_next_sample_time(time_now, rate)
@@ -334,18 +332,20 @@ class Bot():
                 logging.info("Saving placeholder sample")
                 self.database.save_sample(user_id, new_sample_time, "EMPTY (BOT OFF)")
                 new_sample_time = self.create_next_sample_time(new_sample_time, rate)
-        self.schedule_next_sample(user_id, room_id, new_sample_time)
+        logging.info("Setting next sample time for {} to {}".format(user_id, new_sample_time))
+        self.schedule_next_sample(user_id, new_sample_time)
 
-    async def collect_user_activity(self, user_id, room_id):
+    async def collect_user_activity(self, user_id):
+        room_id = self.database.get_room(user_id)
+        sample_time = self.database.get_next_sample_time(user_id)
         if self.database.get_user_state(user_id) == STATE_ACTIVITY_WAIT:
-            await self.send_room_message("Previous sample unanswered, saving placeholder label...")
-            sample_time = self.database.get_next_sample_time(user_id)
+            await self.send_room_message("Previous sample unanswered, saving placeholder label...", room_id)
             self.database.save_sample(user_id, sample_time, "EMPTY")
         await self.send_room_message("What's up?", room_id)
         self.database.set_user_state(user_id, STATE_ACTIVITY_WAIT)
         rate = self.database.get_rate(user_id)
-        new_sample_time = self.create_next_sample_time(new_sample_time, rate)
-        self.schedule_next_sample(user_id, room_id, new_sample_time)
+        new_sample_time = self.create_next_sample_time(sample_time, rate)
+        self.schedule_next_sample(user_id, new_sample_time)
 
     async def propose_to_switch_room(self, user_id, room_id):
         resp = "Hello {}, you are already registered. Want to move the conversation to this room?".format(user_id)
@@ -367,7 +367,7 @@ class Bot():
             rate = self.database.get_rate(user_id)
             time_now = datetime.now()
             next_sample_time = self.create_next_sample_time(time_now, rate)
-            self.schedule_next_sample(user_id, room_id, next_sample_time)
+            self.schedule_next_sample(user_id, next_sample_time)
 
     async def room_member_callback(self, room, event):
         if event.membership == "leave":
@@ -513,14 +513,15 @@ Currently maintained at https://github.com/fwerpers/timeprof.
         return await coro
 
     def create_next_sample_time(self, prev_sample_time, rate):
-        interval = np.ceil(np.random.exponential(scale=rate))
+        interval = np.random.exponential(scale=rate)
         next_sample_time = prev_sample_time + timedelta(minutes=interval)
         return next_sample_time
 
-    def schedule_next_sample(self, user_id, room_id, sample_time):
+    def schedule_next_sample(self, user_id, sample_time):
         loop = asyncio.get_event_loop()
         self.database.set_next_sample_time(user_id, sample_time)
-        loop.create_task(self.run_at(sample_time, self.collect_user_activity(user_id, room_id)))
+        loop.create_task(self.run_at(sample_time, self.collect_user_activity(user_id)))
+        logging.info("Scheduled new sample time at {}".format(sample_time))
 
     async def handle_activity_message(self, msg, user_id, room_id):
         if self.is_activity_string(msg):
@@ -547,9 +548,10 @@ Currently maintained at https://github.com/fwerpers/timeprof.
             await self.send_room_message(err_str, room_id)
 
     async def handle_command(self, msg, room_id):
+        msg_lowercase = msg.lower()
         command_recognized = False
         for command in self.commands:
-            if await command(msg, room_id):
+            if await command(msg_lowercase, room_id):
                 command_recognized = True
                 break
         #if await self.handle_set_rate_message(msg, room_id):
@@ -599,23 +601,26 @@ Currently maintained at https://github.com/fwerpers/timeprof.
     async def send_data(self, room_id):
         user_id = self.database.get_room_user(room_id)
         file_path = self.database.get_user_file_path(user_id)
-        file_stat = await aiofiles.os.stat(file_path)
-        async with aiofiles.open(file_path, "r+b") as f:
-            resp, maybe_keys = await self.client.upload(
-                f,
-                content_type="test/plain",
-                filename=file_path,
-                filesize=file_stat.st_size
+        if os.path.exists(file_path):
+            file_stat = await aiofiles.os.stat(file_path)
+            async with aiofiles.open(file_path, "r+b") as f:
+                resp, maybe_keys = await self.client.upload(
+                    f,
+                    content_type="test/plain",
+                    filename=file_path,
+                    filesize=file_stat.st_size
+                )
+            await self.client.room_send(
+                room_id=room_id,
+                message_type="m.room.message",
+                content={
+                    "msgtype": "m.file",
+                    "url": resp.content_uri,
+                    "body": "TimeProf data"
+                }
             )
-        await self.client.room_send(
-            room_id=room_id,
-            message_type="m.room.message",
-            content={
-                "msgtype": "m.file",
-                "url": resp.content_uri,
-                "body": "TimeProf data"
-            }
-        )
+        else:
+            await self.send_room_message("There is no data", room_id)
 
 
 async def main():
