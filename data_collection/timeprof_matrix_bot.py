@@ -64,8 +64,6 @@ HELP_STR = """Available inputs:
 -        """
 # TODO: add ability to get data summary
 # TODO: add ability to get data vis image
-# TODO: set up to run on Raspberry Pi
-# TODO: make sure the room switch sequence works as intended
 # TODO: user csv package to save the data
 # TODO: what happens if the bot is in both room switch and activity wait state for a user?
 
