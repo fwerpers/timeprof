@@ -2,7 +2,14 @@
 import asyncio
 from nio import (
     AsyncClient,
-    RoomMessageText)
+    RoomMessageText,
+    InviteMemberEvent,
+    JoinError,
+    AsyncClientConfig,
+    RoomMemberEvent,
+    RoomCreateEvent,
+    RoomLeaveError
+)
 import time
 import re
 import logging
@@ -12,69 +19,383 @@ import aiofiles
 import aiofiles.os
 from datetime import (datetime, timedelta)
 from pathlib import Path
+import json
+import copy
 
 
 HOMESERVER = "https://matrix.org"
 BOT_USER_ID = "@timeprof_bot:matrix.org"
-MSG_TIME_LIMIT_MS = 5e3
-MS_PER_S = 1e3
-DEFAULT_AMOUNT = int(1e3)
-
 
 STATE_NONE = 0
 STATE_ACTIVITY_WAIT = 1
+STATE_ROOM_SWITCH_WAIT = 2
+
+KEY_STATE = "state"
+KEY_NEW_ROOM = "new_room_id"
+KEY_ROOM = "room_id"
+KEY_RATE = "poisson_process_rate"
+KEY_NEXT_SAMPLE_TIME = "next_sample_time"
 
 PATH_TO_THIS_DIR = Path(__file__).absolute().parent
-DATA_FILENAME = PATH_TO_THIS_DIR.joinpath("data.csv")
+DATA_DIR = PATH_TO_THIS_DIR.joinpath("data")
+USER_STATES_PATH = DATA_DIR.joinpath("user_states.json")
 
-#WERPERS_ROOM_ID = "!axKzwhgxJKiKiOhYrD:matrix.org"
-WERPERS_ROOM_ID = "!lkPsBhWrdHbdrnJajF:matrix.org"
-
-FWERPERS_ROOM_ID = "!RSzOBpBQRUWLcnlzmq:matrix.org"
-WERPERS_USER_ID = "@werpers:matrix.org"  # if of user to interact with
-FWERPERS_USER_ID = "@fwerpers:matrix.org"
+JOIN_ATTEMPT_LIMIT = 3
+LEAVE_ROOM_ATTEMPT_LIMIT = 10
+WELCOME_STR = """Hello from TimeProf =D
+Type 'help' to see available inputs"""
 
 
+INFO_STR = """
+This is a bot to collect user activity with sampling according to a Poisson process. Every now and then it will ask what you are up to and record it. Reply with a string of whitespace separated words. To see other available input, send 'help'.
+        
+The data saved at each sample is the timestamp, the string provided by the user and the currently set rate of the Poisson process.
+
+Currently maintained at https://github.com/fwerpers/timeprof.
+        """
+
+HELP_STR = """Available inputs:
+-help - this message
+-info - description of the bot
+-set rate <rate> - set rate (minutes) of sampling process. Must be an integer
+-get rate - get current rate
+-get next - get time of next sample
+-get data - get a download link for the data
+-        """
 # TODO: add ability to get data summary
-# TODO: add ability to get the csv file
 # TODO: add ability to get data vis image
-# TODO: set up to run on Raspberry Pi
+# TODO: user csv package to save the data
+# TODO: what happens if the bot is in both room switch and activity wait state for a user?
+
+class Argument():
+    def __init__(self, name, regex):
+        self.name = name
+        self.regex = regex
+
+class Command():
+    def __init__(self, name, func, help_str):
+        self.name = name
+        self.func = func
+        self.args = []
+        self.help_str = help_str
+
+    def add_argument(self, name, regex):
+        arg = Argument(name, regex)
+        self.args.append(arg)
+
+    def add_help_entry(self, help_str):
+        self.help_str = help_str
+
+    def get_help_entry(self):
+        return self.help_str
+
+    def is_simple_command(self):
+        if len(self.args) > 0:
+            return False
+        else:
+            return True
+
+    async def __call__(self, msg, room_id):
+        # TODO: make more general by using commented code below
+        return await self.func(msg, room_id)
+        
+        # Catch command name followed by eventual whitespace
+        # and arbitrary characters
+        #regex = r"^{}( (.*))?".format(self.name)
+        #m = re.match(regex, msg)
+        #if m is None:
+            #return False
+        #elif self.is_simple_command():
+            #if m.group(1) is None:
+                #await self.func(msg, room_id)
+                #return True
+            #else:
+                #return False
+                # TODO: send message that no extra characters are expected except from the command name. Could add an arbitrary number of whitespaces after the base command (and between arguments)
+        #else:
+            #cmd_args = m.group(2)
+            #if cmd_args is None:
+                #return False
+            #else:
+                ## TODO: match with arguments
+                #grouped_args = ["({})".format(arg) for arg in self.args]
+                #arg_regex = " ".join(grouped_args)
+                #re.match(arg_regex, cmd_args) 
+                #return False
+           # 
+       # 
+        #if len(self.args) > 0:
+            #regex = "{} (.*)"
+            #for arg in self.args:
+                #regex = "{} {}".format(regex, arg.regex)
+        #else:
+            #re.match(regex, msg)
+        
+
+class User():
+    def __init__(self):
+        self.user_id
+        self.room_id
+        self.poisson_process_rate
+        self.next_sample_time
+
+
+class DataBase():
+    def __init__(self):
+        if not DATA_DIR.exists():
+            os.mkdir(DATA_DIR)
+
+        self.user_data = {}
+
+    def is_user_room_registered(self, user_id):
+        if self.get_room(user_id):
+            return True
+        else:
+            return False
+
+    def is_user_registered(self, user_id):
+        return user_id in self.user_data.keys()
+
+    def is_user_registered(self, user_id):
+        return user_id in self.user_data
+
+    def register_user(self, user_id):
+        user_dict = {}
+        user_dict[KEY_NEW_ROOM] = None
+        user_dict[KEY_RATE] = 45.0
+        user_dict[KEY_NEXT_SAMPLE_TIME] = None
+        user_dict[KEY_STATE] = STATE_NONE
+        self.user_data[user_id] = user_dict
+        logging.info("Registered user {},{}".format(user_id, user_dict))
+
+    def add_new_room(self, user_id, room_id):
+        self.user_data[user_id][KEY_NEW_ROOM] = room_id
+
+    def save_user_states(self):
+        with open(USER_STATES_PATH, 'w') as fp:
+            user_data_str = copy.deepcopy(self.user_data)
+            for user_id in user_data_str.keys():
+                logging.info(self.get_next_sample_time(user_id))
+                user_data_str[user_id][KEY_NEXT_SAMPLE_TIME] = self.get_next_sample_time(user_id).isoformat()
+            json.dump(user_data_str, fp)
+
+    def load_user_states(self):
+        if USER_STATES_PATH.exists():
+            with open(USER_STATES_PATH, 'r') as fp:
+                user_data_str = json.load(fp)
+                self.user_data = copy.deepcopy(user_data_str)
+                for user_id in self.user_data.keys():
+                    self.set_next_sample_time(
+                        user_id,
+                        datetime.fromisoformat(user_data_str[user_id][KEY_NEXT_SAMPLE_TIME]))
+
+    def switch_to_new_room(self, user_id):
+        new_room_id = self.user_data.get(user_id).get(KEY_NEW_ROOM)
+        self.user_data[user_id][KEY_ROOM] = new_room_id
+
+    def get_room_user(self, room_id):
+        for user_id in self.user_data.keys():
+            if self.get_room(user_id) == room_id:
+                return(user_id)
+
+    def get_room(self, user_id):
+        room_id = self.user_data[user_id].get(KEY_ROOM)
+        return room_id
+
+    def get_new_room_user(self, room_id):
+        for user_id in self.user_data.keys():
+            if self.user_data[user_id].get(KEY_NEW_ROOM) == room_id:
+                return(user_id)
+
+    def get_user_state(self, user_id):
+        return self.user_data.get(user_id).get(KEY_STATE)
+
+    def set_user_state(self, user_id, state):
+        self.user_data[user_id][KEY_STATE] = state
+        self.save_user_states()
+
+    def get_user_file_path(self, user_id):
+        user_file_path = DATA_DIR.joinpath("{}.csv".format(user_id))
+        return user_file_path
+
+    def get_rate(self, user_id):
+        logging.info(self.user_data)
+        return self.user_data.get(user_id).get(KEY_RATE)
+
+    def set_rate(self, user_id, rate):
+        self.user_data[user_id][KEY_RATE] = rate
+        self.save_user_states()
+
+    def save_sample(self, user_id, sample_time, label):
+        user_file_path = self.get_user_file_path(user_id)
+        with open(user_file_path, 'a') as f:
+            # TODO: use time when question was asked instead?
+            timestamp = str(sample_time)
+            poisson_process_rate = self.user_data.get(user_id).get(KEY_RATE)
+            line_format_str = "{}, {}, {}\n"
+            line = line_format_str.format(timestamp,
+                                          label,
+                                          poisson_process_rate)
+            f.write(line)
+        logging.info("Saving data '{}' to {}".format(line, user_file_path))
+
+    def get_next_sample_time(self, user_id):
+        next_sample_time = self.user_data.get(user_id).get(KEY_NEXT_SAMPLE_TIME)
+        assert isinstance(next_sample_time, datetime), "{}".format(type(next_sample_time))
+        return next_sample_time
+
+    def set_next_sample_time(self, user_id, next_sample_time):
+        assert isinstance(next_sample_time, datetime)
+        self.user_data[user_id][KEY_NEXT_SAMPLE_TIME] = next_sample_time
+        logging.info(type(next_sample_time))
+        self.save_user_states()
+
 
 class Bot():
     def __init__(self):
         pass
 
-    async def init(self, homeserver, bot_id, bot_pw, room_id, user_id):
-        self.client = AsyncClient(homeserver,
-                                  bot_id,
-                                  ssl=True,
-                                  device_id="matrix-nio")
-        logging.info(self.client.access_token)
-        self.client.add_event_callback(self.message_callback, RoomMessageText)
+    async def init(self, homeserver, bot_id, bot_pw, leave_all_rooms=False):
+        client_config = AsyncClientConfig(
+            max_limit_exceeded=0,
+            max_timeouts=0,
+            store_sync_tokens=True,
+            encryption_enabled=True,
+        )
+        self.client = AsyncClient(
+            homeserver,
+            bot_id,
+            ssl=True,
+            device_id="matrix-niotest1235",
+            store_path="./store",
+            config=client_config
+        )
+        self.database = DataBase()
+        self.database.load_user_states()
+        self.sync_next_sample_times()
         await self.client.login(bot_pw)
-        logging.info(self.client.access_token)
-        self.state = STATE_NONE
-        self.room_id = room_id
-        self.user_id = user_id
-        self.poisson_process_rate = 45  # minutes
-        self.next_sample_time = 0  # set after user activity input
+        await self.log_joined_rooms()
+        if leave_all_rooms:
+            await self.leave_all_rooms()
+        self.add_commands()
+        self.client.add_event_callback(self.message_callback, RoomMessageText)
+        self.client.add_event_callback(self.invite_callback, InviteMemberEvent)
+        self.client.add_event_callback(self.room_member_callback, RoomMemberEvent)
+        self.client.add_event_callback(self.room_create_callback, RoomCreateEvent)
         logging.info("Initialised bot")
 
-    async def collect_user_activity(self):
-        await self.send_message("What's up?")
-        self.state = STATE_ACTIVITY_WAIT
+    def add_commands(self):
+        self.commands = [
+            Command("help", self.handle_help_message, "list commands (this message)"),    
+            Command("info", self.handle_info_message, "info about the bot"),
+            Command("get data", self.handle_get_data, "get a download link for the data"),
+            Command("get next", self.handle_get_next_sample_time, "get time of next sample"),
+            Command("get rate", self.handle_get_rate_message, "get current rate")
+        ]
+        set_rate_cmd = Command("set rate", self.handle_set_rate_message, "set rate (minutes) of sampling process")
+        set_rate_cmd.add_argument("rate", r"\d+")
+        self.commands.append(set_rate_cmd)
 
-    def msg_event_valid(self, event):
-        """ Make sure the message is from the expected user
-        Make sure the message is not older than 5 seconds
-        """
-        ret = True
-        time_now = int(round(time.time() * MS_PER_S))
-        if event.sender != self.user_id:
-            ret = False
-        elif time_now - event.server_timestamp > MSG_TIME_LIMIT_MS:
-            ret = False
-        return ret
+    async def log_joined_rooms(self):
+        joined_rooms_resp = await self.client.joined_rooms()
+        logging.info(joined_rooms_resp)
+
+    async def leave_all_rooms(self):
+        joined_rooms_resp = await self.client.joined_rooms()
+        for room_id in joined_rooms_resp.rooms:
+            logging.info("Leaving room {}".format(room_id))
+            for i in range(LEAVE_ROOM_ATTEMPT_LIMIT):
+                resp = await self.client.room_leave(room_id)
+                logging.info(resp)
+                if isinstance(resp, RoomLeaveError):
+                    await asyncio.sleep(resp.retry_after_ms * 1e-3)
+                else:
+                    break
+
+    def sync_next_sample_times(self):
+        for user_id in self.database.user_data.keys():
+            self.sync_next_sample_time(user_id)
+
+    def sync_next_sample_time(self, user_id):
+        next_sample_time = self.database.get_next_sample_time(user_id)
+        time_now = datetime.now()
+        rate = self.database.get_rate(user_id)
+        # TODO: do this in a cleaner way. Should next_sample_time ever be None?
+        if next_sample_time is None:
+            new_sample_time = self.create_next_sample_time(time_now, rate)
+        else:
+            new_sample_time = next_sample_time
+            while new_sample_time <= time_now:
+                time_now = datetime.now()
+                logging.info("Saving placeholder sample")
+                self.database.save_sample(user_id, new_sample_time, "EMPTY (BOT OFF)")
+                new_sample_time = self.create_next_sample_time(new_sample_time, rate)
+        logging.info("Setting next sample time for {} to {}".format(user_id, new_sample_time))
+        self.schedule_next_sample(user_id, new_sample_time)
+
+    async def collect_user_activity(self, user_id):
+        room_id = self.database.get_room(user_id)
+        sample_time = self.database.get_next_sample_time(user_id)
+        if self.database.get_user_state(user_id) == STATE_ACTIVITY_WAIT:
+            await self.send_room_message("Previous sample unanswered, saving placeholder label...", room_id)
+            self.database.save_sample(user_id, sample_time, "EMPTY")
+        await self.send_room_message("What's up?", room_id)
+        self.database.set_user_state(user_id, STATE_ACTIVITY_WAIT)
+        rate = self.database.get_rate(user_id)
+        new_sample_time = self.create_next_sample_time(sample_time, rate)
+        self.schedule_next_sample(user_id, new_sample_time)
+
+    async def propose_to_switch_room(self, user_id, room_id):
+        resp = "Hello {}, you are already registered. Want to move the conversation to this room?".format(user_id)
+        await self.send_room_message(resp, room_id)
+        self.database.set_user_state(user_id, STATE_ROOM_SWITCH_WAIT)
+
+    async def room_create_callback(self, room, event):
+        logging.info(event)
+        await self.handle_room_join(room.room_id)
+
+    async def handle_room_join(self, room_id):
+        user_id = self.database.get_new_room_user(room_id)
+        if self.database.is_user_room_registered(user_id):
+            logging.info("User {} already registered with room {}".format(user_id, room_id))
+            await self.propose_to_switch_room(user_id, room_id)
+        else:
+            self.database.switch_to_new_room(user_id)
+            await self.send_room_message(WELCOME_STR, room_id)
+            rate = self.database.get_rate(user_id)
+            time_now = datetime.now()
+            next_sample_time = self.create_next_sample_time(time_now, rate)
+            self.schedule_next_sample(user_id, next_sample_time)
+
+    async def room_member_callback(self, room, event):
+        if event.membership == "leave":
+            logging.info(self.database.user_data)
+            user_id = self.database.get_room_user(room.room_id)
+            if event.state_key == user_id:
+                logging.info("Leaving room {}".format(room.room_id))
+                await self.client.room_leave(room.room_id)
+        # Did the bot join a new room?
+        elif event.state_key == self.client.user_id and event.membership == "join":
+            # Apparently this can happen more than once after joining a room
+            logging.info(event.content)
+            logging.info(await self.client.joined_rooms())
+
+    async def invite_callback(self, room, event):
+        logging.info(event)
+        logging.info(event.state_key)
+
+        for join_attempt in range(JOIN_ATTEMPT_LIMIT):
+            resp = await self.client.join(room.room_id)
+            if isinstance(resp, JoinError):
+                logging.info("Failed to join room {}: {}".format(room.room_id, resp.message))
+            else:
+                logging.info("Joined room {}".format(room.room_id))
+                user_id = event.sender
+                if self.database.is_user_registered(user_id):
+                    self.database.add_new_room(user_id, room.room_id)
+                else:
+                    self.database.register_user(user_id)
+                break
 
     def is_simple_phrase(self, msg):
         ret = False
@@ -93,101 +414,90 @@ class Bot():
             ret = True
         return ret
 
-    def save_data(self, label):
-        with open(DATA_FILENAME, 'a') as f:
-            timestamp = str(datetime.now())
-            line = "{}, {}, {}\n".format(timestamp,
-                                         label,
-                                         self.poisson_process_rate)
-            f.write(line)
-        logging.info("Saving data '{}'".format(line))
-
-    def set_rate(self, rate):
-        self.poisson_process_rate = rate
-        logging.info("Setting rate to {}".format(rate))
-
-    async def send_help_message(self):
+    async def send_help_message(self, room_id):
         # TODO: don't hardcode this
-        help_str = """Available inputs:
-help - this message
-info - description of the bot
-set rate <rate> - set rate (minutes) of sampling process. Must be an integer
-get rate - get current rate
-get next - get time of next sample
-get data - get a download link for the data
-        """
-        await self.send_message(help_str)
+        help_str = ""
+        for command in self.commands:
+            help_str += "{} - {}\n".format(command.name, command.get_help_entry())
+        await self.send_room_message(help_str, room_id)
 
-    async def send_info_message(self):
+    async def send_info_message(self, room_id):
         info_str = """
 This is a bot to collect user activity with sampling according to a Poisson process. Every now and then it will ask what you are up to and record it. Reply with a string of whitespace separated words. To see other available input, send 'help'.
         
 The data saved at each sample is the timestamp, the string provided by the user and the currently set rate of the Poisson process.
-        """
-        await self.send_message(info_str)
 
-    async def send_data_summary_message(self):
+Currently maintained at https://github.com/fwerpers/timeprof.
+        """
+        await self.send_room_message(info_str, room_id)
+
+    async def send_data_summary_message(self, room_id):
         # TODO: read saved data and summarize
         # Output a table with all recorded labels
         # Total number of samples
         # Samples and percentage per label
         return False
 
-    async def handle_help_message(self, msg):
+    async def handle_help_message(self, msg, room_id):
         ret = False
         if msg == "help":
-            await self.send_help_message()
+            await self.send_help_message(room_id)
             ret = True
         return ret
 
-    async def handle_info_message(self, msg):
+    async def handle_info_message(self, msg, room_id):
         ret = False
+        logging.info(msg)
         if msg == "info":
-            await self.send_info_message()
+            await self.send_info_message(room_id)
             ret = True
         return ret
 
-    async def handle_data_summary_message(self, msg):
+    async def handle_data_summary_message(self, msg, room_id):
         ret = False
         if msg == "data summary":
-            await self.send_data_summary_message()
+            await self.send_data_summary_message(room_id)
             ret = True
         return ret
 
-    def set_sample_rate(self, rate):
-        self.poisson_process_rate = rate
-
-    async def handle_set_rate_message(self, msg):
+    async def handle_set_rate_message(self, msg, room_id):
         ret = False
+        logging.info(msg)
         re_pattern = r"^set rate (\d+)$"
         m = re.match(re_pattern, msg)
         if m is not None:
             rate = m.groups()[0]
-            self.set_sample_rate(float(rate))
-            await self.send_message("Updated rate to {}".format(rate))
+            user_id = self.database.get_room_user(room_id)
+            self.database.set_rate(user_id, float(rate))
+            resp = "Updated rate to {}".format(rate)
+            await self.send_room_message(resp, room_id)
             ret = True
         return ret
 
-    async def handle_get_rate_message(self, msg):
+    async def handle_get_rate_message(self, msg, room_id):
         ret = False
         if msg == "get rate":
-            response = "Current rate is {}".format(self.poisson_process_rate)
-            await self.send_message(response)
+            user_id = self.database.get_room_user(room_id)
+            rate = self.database.get_rate(user_id)
+            response = "Current rate is {}".format(rate)
+            await self.send_room_message(response, room_id)
             ret = True
         return ret
 
-    async def handle_get_next_sample_time(self, msg):
+    async def handle_get_next_sample_time(self, msg, room_id):
         ret = False
         if msg == "get next":
-            response = "Next sample scheduled for {}".format(self.next_sample_time)
-            await self.send_message(response)
+            user_id = self.database.get_room_user(room_id)
+            next_sample_time = self.database.get_next_sample_time(user_id)
+            response = "Next sample scheduled for {}".format(next_sample_time)
+            await self.send_room_message(response, room_id)
             ret = True
         return ret
 
-    async def handle_get_data(self, msg):
+    async def handle_get_data(self, msg, room_id):
         ret = False
         if msg == "get data":
-            await self.send_data()
+            await self.send_data(room_id)
             ret = True
         return ret
 
@@ -200,81 +510,115 @@ The data saved at each sample is the timestamp, the string provided by the user 
         await self.wait_until(dt)
         return await coro
 
-    def get_next_sample_time(self):
-        time_now = datetime.now()
-        interval = np.ceil(np.random.exponential(scale=self.poisson_process_rate))
-        next_sample_dt = time_now + timedelta(minutes=interval)
-        return next_sample_dt
+    def create_next_sample_time(self, prev_sample_time, rate):
+        interval = np.random.exponential(scale=rate)
+        next_sample_time = prev_sample_time + timedelta(minutes=interval)
+        return next_sample_time
 
-    async def handle_valid_message(self, msg):
-        logging.info("Handling valid message '{}'".format(msg))
-        response_msg = ""
-        if self.state == STATE_ACTIVITY_WAIT:
-            if self.is_activity_string(msg):
-                await self.send_message("Cool, I'll remember that >:)")
-                self.save_data(msg)
-                self.state = STATE_NONE
-                loop = asyncio.get_event_loop()
-                next_sample_dt = self.get_next_sample_time()
-                self.next_sample_time = next_sample_dt
-                loop.create_task(self.run_at(next_sample_dt, self.collect_user_activity()))
-            else:
-                err_str = "Expected lowercase words, not '{}'".format(msg)
-                await self.send_message(err_str)
-        elif self.state == STATE_NONE:
-            if (await self.handle_help_message(msg)):
-                pass
-            elif (await self.handle_info_message(msg)):
-                pass
-            elif (await self.handle_data_summary_message(msg)):
-                pass
-            elif (await self.handle_set_rate_message(msg)):
-                pass
-            elif (await self.handle_get_rate_message(msg)):
-                pass
-            elif (await self.handle_get_next_sample_time(msg)):
-                pass
-            elif (await self.handle_get_data(msg)):
-                pass
-            else:
-                response_msg = "'{}' is not valid input. Send 'help' to list valid input".format(msg)
-                await self.send_message(response_msg)
+    def schedule_next_sample(self, user_id, sample_time):
+        loop = asyncio.get_event_loop()
+        self.database.set_next_sample_time(user_id, sample_time)
+        loop.create_task(self.run_at(sample_time, self.collect_user_activity(user_id)))
+        logging.info("Scheduled new sample time at {}".format(sample_time))
+
+    async def handle_activity_message(self, msg, user_id, room_id):
+        if self.is_activity_string(msg):
+            resp = "Cool, I'll remember that >:)"
+            await self.send_room_message(resp, room_id)
+            time_now = datetime.now()
+            self.database.save_sample(user_id, time_now, msg)
+            self.database.set_user_state(user_id, STATE_NONE)
+        else:
+            err_str = "Expected lowercase words, not '{}'".format(msg)
+            await self.send_room_message(err_str, room_id)
+
+    async def handle_room_switch_message(self, msg, user_id, room_id):
+        if msg == "yes":
+            await self.send_room_message("Ok, let's keep talking here", room_id)
+            self.database.switch_to_new_room(user_id)
+            self.database.set_user_state(user_id, STATE_NONE)
+        elif msg == "no":
+            await self.send_room_message("Ok, I'm out", room_id)
+            self.database.set_user_state(user_id, STATE_NONE)
+            self.leave_room(room_id)
+        else:
+            err_str = "Expected yes or no, not '{}'".format(msg)
+            await self.send_room_message(err_str, room_id)
+
+    async def handle_command(self, msg, room_id):
+        msg_lowercase = msg.lower()
+        command_recognized = False
+        for command in self.commands:
+            if await command(msg_lowercase, room_id):
+                command_recognized = True
+                break
+        #if await self.handle_set_rate_message(msg, room_id):
+            #command_recognized = True
+        if not command_recognized:
+            response_msg = "'{}' is not valid input. Send 'help' to list valid input".format(msg)
+            await self.send_room_message(response_msg, room_id)
+
+    async def handle_message(self, msg, user_id, room_id):
+        state = self.database.get_user_state(user_id)
+        logging.info("Handling valid message '{}' in state {}".format(msg, state))
+        if state == STATE_ACTIVITY_WAIT:
+            await self.handle_activity_message(msg, user_id, room_id)
+        elif state == STATE_ROOM_SWITCH_WAIT:
+            await self.handle_room_switch_message(msg, user_id, room_id)
+        elif state == STATE_NONE:
+            await self.handle_command(msg, room_id)
 
     async def message_callback(self, room, event):
-        msg = event.body
-        if self.msg_event_valid(event):
-            await self.handle_valid_message(msg)
-        else:
-            logging.info("Discarding message {}".format(msg))
+        try:
+            msg = event.body
+            if self.database.is_user_registered(event.sender):
+                await self.handle_message(msg, event.sender, room.room_id)
+            else:
+                logging.info("Discarding message {}".format(msg))
+        except:
+            resp = "Sorry, there was en error. Contact the developer :("
+            await self.send_room_message(resp, room.room_id)
+            raise
 
-    async def send_message(self, msg):
+    async def send_room_message(self, msg, room_id):
         await self.client.room_send(
-            room_id=self.room_id,
+            room_id=room_id,
             message_type="m.room.message",
             content={
                 "msgtype": "m.text",
                 "body": msg
-            }
+            },
+            ignore_unverified_devices=True
         )
 
-    async def send_data(self):
-        file_stat = await aiofiles.os.stat(DATA_FILENAME)
-        async with aiofiles.open(DATA_FILENAME, "r+b") as f:
-            resp, maybe_keys = await self.client.upload(
-                f,
-                content_type="test/plain",
-                filename=DATA_FILENAME,
-                filesize=file_stat.st_size
+    async def send_to_all_registered_users(self, msg):
+        for user_id in self.database.user_data.keys():
+            room_id = self.database.get_room(user_id)
+            await self.send_room_message(msg, room_id)
+
+    async def send_data(self, room_id):
+        user_id = self.database.get_room_user(room_id)
+        file_path = self.database.get_user_file_path(user_id)
+        if os.path.exists(file_path):
+            file_stat = await aiofiles.os.stat(file_path)
+            async with aiofiles.open(file_path, "r+b") as f:
+                resp, maybe_keys = await self.client.upload(
+                    f,
+                    content_type="test/plain",
+                    filename=file_path,
+                    filesize=file_stat.st_size
+                )
+            await self.client.room_send(
+                room_id=room_id,
+                message_type="m.room.message",
+                content={
+                    "msgtype": "m.file",
+                    "url": resp.content_uri,
+                    "body": "TimeProf data"
+                }
             )
-        await self.client.room_send(
-            room_id=self.room_id,
-            message_type="m.room.message",
-            content={
-                "msgtype": "m.file",
-                "url": resp.content_uri,
-                "body": "TimeProf data"
-            }
-        )
+        else:
+            await self.send_room_message("There is no data", room_id)
 
 
 async def main():
@@ -284,12 +628,16 @@ async def main():
     await bot.init(HOMESERVER,
                    BOT_USER_ID,
                    pw,
-                   FWERPERS_ROOM_ID,
-                   FWERPERS_USER_ID)
-    await bot.send_message("Hello from TimeProf =D")
-    await bot.send_message("Send 'help' for possible input")
-    await bot.collect_user_activity()
-    await bot.client.sync_forever(timeout=10000)
+                   leave_all_rooms=True)
+    try:
+        await bot.client.sync_forever(timeout=10000)
+    except:
+        try:
+            await bot.send_to_all_registered_users("There was a problem. Shutting down...")
+            await bot.database.save_user_states()
+        except:
+            pass
+        raise
     await bot.client.close()
 
 
