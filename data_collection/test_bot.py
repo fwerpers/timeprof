@@ -127,8 +127,6 @@ class InfoMessageUserClient(UserClient):
     async def message_callback(self, room, event):
         time_now = int(round(time.time() * MS_PER_S))
         if event.sender != self.user_id and time_now - event.server_timestamp < MSG_TIME_LIMIT_MS:
-            logging.info("Message callback in UserClient")
-            logging.info(event)
             msg = event.body
             if msg == INFO_STR:
                 self.pass_event.set()
