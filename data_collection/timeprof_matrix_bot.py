@@ -198,6 +198,10 @@ class DataBase():
             if self.get_room(user_id) == room_id:
                 return(user_id)
 
+    def unregister_user(self, user_id):
+        self.user_data.pop(user_id, None)
+        self.save_user_states()
+
     def get_room(self, user_id):
         room_id = self.user_data[user_id].get(KEY_ROOM)
         return room_id
@@ -251,37 +255,38 @@ class DataBase():
         self.save_user_states()
 
 
-class TimeProfBot():
-    def __init__(self):
-        pass
-
-    async def init(self, homeserver, bot_id, bot_pw, leave_all_rooms=False):
+class TimeProfBot(AsyncClient):
+    def __init__(self, homeserver, mid, bot_pw):
+        self.bot_pw = bot_pw
         client_config = AsyncClientConfig(
             max_limit_exceeded=0,
             max_timeouts=0,
             store_sync_tokens=True,
             encryption_enabled=True,
         )
-        self.client = AsyncClient(
+        super().__init__(
             homeserver,
-            bot_id,
+            mid,
             ssl=True,
             device_id="matrix-niotest1235",
             store_path="./store",
             config=client_config
         )
+
+    async def init(self, leave_all_rooms=False):
         self.database = DataBase()
         self.database.load_user_states()
         self.sync_next_sample_times()
-        await self.client.login(bot_pw)
+        resp = await self.login(self.bot_pw)
+        logging.info(resp)
         await self.log_joined_rooms()
         if leave_all_rooms:
             await self.leave_all_rooms()
         self.add_commands()
-        self.client.add_event_callback(self.message_callback, RoomMessageText)
-        self.client.add_event_callback(self.invite_callback, InviteMemberEvent)
-        self.client.add_event_callback(self.room_member_callback, RoomMemberEvent)
-        self.client.add_event_callback(self.room_create_callback, RoomCreateEvent)
+        self.add_event_callback(self.message_callback, RoomMessageText)
+        self.add_event_callback(self.invite_callback, InviteMemberEvent)
+        self.add_event_callback(self.room_member_callback, RoomMemberEvent)
+        self.add_event_callback(self.room_create_callback, RoomCreateEvent)
         logging.info("Initialised bot")
 
     def add_commands(self):
@@ -297,15 +302,17 @@ class TimeProfBot():
         self.commands.append(set_rate_cmd)
 
     async def log_joined_rooms(self):
-        joined_rooms_resp = await self.client.joined_rooms()
+        joined_rooms_resp = await self.joined_rooms()
         logging.info(joined_rooms_resp)
 
     async def leave_all_rooms(self):
-        joined_rooms_resp = await self.client.joined_rooms()
+        joined_rooms_resp = await self.joined_rooms()
         for room_id in joined_rooms_resp.rooms:
+            room_user = self.database.get_room_user(room_id)
+            self.database.unregister_user(room_user)
             logging.info("Leaving room {}".format(room_id))
             for i in range(LEAVE_ROOM_ATTEMPT_LIMIT):
-                resp = await self.client.room_leave(room_id)
+                resp = await self.room_leave(room_id)
                 logging.info(resp)
                 if isinstance(resp, RoomLeaveError):
                     await asyncio.sleep(resp.retry_after_ms * 1e-3)
@@ -373,19 +380,19 @@ class TimeProfBot():
             user_id = self.database.get_room_user(room.room_id)
             if event.state_key == user_id:
                 logging.info("Leaving room {}".format(room.room_id))
-                await self.client.room_leave(room.room_id)
+                await self.room_leave(room.room_id)
         # Did the bot join a new room?
-        elif event.state_key == self.client.user_id and event.membership == "join":
+        elif event.state_key == self.user_id and event.membership == "join":
             # Apparently this can happen more than once after joining a room
             logging.info(event.content)
-            logging.info(await self.client.joined_rooms())
+            logging.info(await self.joined_rooms())
 
     async def invite_callback(self, room, event):
         logging.info(event)
         logging.info(event.state_key)
 
         for join_attempt in range(JOIN_ATTEMPT_LIMIT):
-            resp = await self.client.join(room.room_id)
+            resp = await self.join(room.room_id)
             if isinstance(resp, JoinError):
                 logging.info("Failed to join room {}: {}".format(room.room_id, resp.message))
             else:
@@ -422,14 +429,7 @@ class TimeProfBot():
         await self.send_room_message(help_str, room_id)
 
     async def send_info_message(self, room_id):
-        info_str = """
-This is a bot to collect user activity with sampling according to a Poisson process. Every now and then it will ask what you are up to and record it. Reply with a string of whitespace separated words. To see other available input, send 'help'.
-        
-The data saved at each sample is the timestamp, the string provided by the user and the currently set rate of the Poisson process.
-
-Currently maintained at https://github.com/fwerpers/timeprof.
-        """
-        await self.send_room_message(info_str, room_id)
+        await self.send_room_message(INFO_STR, room_id)
 
     async def send_data_summary_message(self, room_id):
         # TODO: read saved data and summarize
@@ -581,7 +581,7 @@ Currently maintained at https://github.com/fwerpers/timeprof.
             raise
 
     async def send_room_message(self, msg, room_id):
-        await self.client.room_send(
+        await self.room_send(
             room_id=room_id,
             message_type="m.room.message",
             content={
@@ -602,13 +602,13 @@ Currently maintained at https://github.com/fwerpers/timeprof.
         if os.path.exists(file_path):
             file_stat = await aiofiles.os.stat(file_path)
             async with aiofiles.open(file_path, "r+b") as f:
-                resp, maybe_keys = await self.client.upload(
+                resp, maybe_keys = await self.upload(
                     f,
                     content_type="test/plain",
                     filename=file_path,
                     filesize=file_stat.st_size
                 )
-            await self.client.room_send(
+            await self.room_send(
                 room_id=room_id,
                 message_type="m.room.message",
                 content={
@@ -620,17 +620,16 @@ Currently maintained at https://github.com/fwerpers/timeprof.
         else:
             await self.send_room_message("There is no data", room_id)
 
+    async def main(self):
+        await self.sync_forever(timeout=10000)
 
 async def main():
-    bot = TimeProfBot()
     pw = os.environ["TIMEPROF_MATRIX_PW"]
+    bot = TimeProfBot(HOMESERVER, BOT_USER_ID, pw)
     logging.info("Initialising bot")
-    await bot.init(HOMESERVER,
-                   BOT_USER_ID,
-                   pw,
-                   leave_all_rooms=True)
+    await bot.init(leave_all_rooms=True)
     try:
-        await bot.client.sync_forever(timeout=10000)
+        await bot.main()
     except:
         try:
             await bot.send_to_all_registered_users("There was a problem. Shutting down...")
