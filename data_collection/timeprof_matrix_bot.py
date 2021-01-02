@@ -251,7 +251,7 @@ class DataBase():
         self.save_user_states()
 
 
-class Bot():
+class TimeProfBot():
     def __init__(self):
         pass
 
@@ -622,7 +622,7 @@ Currently maintained at https://github.com/fwerpers/timeprof.
 
 
 async def main():
-    bot = Bot()
+    bot = TimeProfBot()
     pw = os.environ["TIMEPROF_MATRIX_PW"]
     logging.info("Initialising bot")
     await bot.init(HOMESERVER,
