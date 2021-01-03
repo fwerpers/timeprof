@@ -22,6 +22,7 @@ from pathlib import Path
 import json
 import copy
 
+from argparse_test import (NonExitingArgParser, ArgumentException)
 
 HOMESERVER = "https://matrix.org"
 BOT_USER_ID = "@timeprof_bot:matrix.org"
@@ -78,10 +79,14 @@ class Command():
         self.func = func
         self.args = []
         self.help_str = help_str
+        self.arg_parser = NonExitingArgParser(prog=name)
 
-    def add_argument(self, name, regex):
-        arg = Argument(name, regex)
-        self.args.append(arg)
+    #def add_argument(self, name, regex):
+        #arg = Argument(name, regex)
+        #self.args.append(arg)
+
+    def add_argument(self, name, t):
+        self.arg_parser.add_argument(name, type=t)
 
     def add_help_entry(self, help_str):
         self.help_str = help_str
@@ -298,7 +303,7 @@ class TimeProfBot(AsyncClient):
             Command("get rate", self.handle_get_rate_message, "get current rate")
         ]
         set_rate_cmd = Command("set rate", self.handle_set_rate_message, "set rate (minutes) of sampling process")
-        set_rate_cmd.add_argument("rate", r"\d+")
+        set_rate_cmd.add_argument("rate", float)
         self.commands.append(set_rate_cmd)
 
     async def log_joined_rooms(self):
@@ -438,65 +443,53 @@ class TimeProfBot(AsyncClient):
         # Samples and percentage per label
         return False
 
-    async def handle_help_message(self, arg_str, room_id):
-        ret = False
-        if not arg_str:
-            await self.send_help_message(room_id)
-            ret = True
+    async def handle_help_message(self, args, room_id):
+        await self.send_help_message(room_id)
+        ret = True
         return ret
 
-    async def handle_info_message(self, arg_str, room_id):
+    async def handle_info_message(self, args, room_id):
         ret = False
-        if not arg_str:
+        if not args:
             await self.send_info_message(room_id)
             ret = True
         return ret
 
-    async def handle_data_summary_message(self, arg_str, room_id):
+    async def handle_data_summary_message(self, args, room_id):
         ret = False
-        if not arg_str:
+        if not args:
             await self.send_data_summary_message(room_id)
             ret = True
         return ret
 
-    async def handle_set_rate_message(self, arg_str, room_id):
-        ret = False
-        re_pattern = r"(\d+)"
-        m = re.match(re_pattern, arg_str)
-        if m is not None:
-            rate = m.groups()[0]
-            user_id = self.database.get_room_user(room_id)
-            self.database.set_rate(user_id, float(rate))
-            resp = "Updated rate to {}".format(rate)
-            await self.send_room_message(resp, room_id)
-            ret = True
+    async def handle_set_rate_message(self, args, room_id):
+        rate = args.rate
+        user_id = self.database.get_room_user(room_id)
+        self.database.set_rate(user_id, float(rate))
+        resp = "Updated rate to {}".format(rate)
+        await self.send_room_message(resp, room_id)
+        ret = True
         return ret
 
-    async def handle_get_rate_message(self, arg_str, room_id):
-        ret = False
-        if not arg_str:
-            user_id = self.database.get_room_user(room_id)
-            rate = self.database.get_rate(user_id)
-            response = "Current rate is {}".format(rate)
-            await self.send_room_message(response, room_id)
-            ret = True
+    async def handle_get_rate_message(self, args, room_id):
+        user_id = self.database.get_room_user(room_id)
+        rate = self.database.get_rate(user_id)
+        response = "Current rate is {}".format(rate)
+        await self.send_room_message(response, room_id)
+        ret = True
         return ret
 
-    async def handle_get_next_sample_time(self, arg_str, room_id):
-        ret = False
-        if not arg_str:
-            user_id = self.database.get_room_user(room_id)
-            next_sample_time = self.database.get_next_sample_time(user_id)
-            response = "Next sample scheduled for {}".format(next_sample_time)
-            await self.send_room_message(response, room_id)
-            ret = True
+    async def handle_get_next_sample_time(self, args, room_id):
+        user_id = self.database.get_room_user(room_id)
+        next_sample_time = self.database.get_next_sample_time(user_id)
+        response = "Next sample scheduled for {}".format(next_sample_time)
+        await self.send_room_message(response, room_id)
+        ret = True
         return ret
 
-    async def handle_get_data(self, arg_str, room_id):
-        ret = False
-        if not arg_str:
-            await self.send_data(room_id)
-            ret = True
+    async def handle_get_data(self, args, room_id):
+        await self.send_data(room_id)
+        ret = True
         return ret
 
     async def wait_until(self, dt):
@@ -549,9 +542,14 @@ class TimeProfBot(AsyncClient):
         for command in self.commands:
             if msg_lowercase.startswith(command.name):
                 arg_str = msg_lowercase[len(command.name):].strip()
-                if await command(arg_str, room_id):
-                    command_recognized = True
-                    break
+                try:
+                    args = command.arg_parser.parse_args(arg_str.split())
+                    if await command(args, room_id):
+                        command_recognized = True
+                        break
+                except ArgumentException:
+                    logging.info("Parse failed")
+                    command_recognized = False
         if not command_recognized:
             response_msg = "'{}' is not valid input. Send 'help' to list valid input".format(msg)
             await self.send_room_message(response_msg, room_id)
