@@ -445,22 +445,12 @@ class TimeProfBot(AsyncClient):
 
     async def handle_help_message(self, args, room_id):
         await self.send_help_message(room_id)
-        ret = True
-        return ret
 
     async def handle_info_message(self, args, room_id):
-        ret = False
-        if not args:
-            await self.send_info_message(room_id)
-            ret = True
-        return ret
+        await self.send_info_message(room_id)
 
     async def handle_data_summary_message(self, args, room_id):
-        ret = False
-        if not args:
-            await self.send_data_summary_message(room_id)
-            ret = True
-        return ret
+        await self.send_data_summary_message(room_id)
 
     async def handle_set_rate_message(self, args, room_id):
         rate = args.rate
@@ -468,29 +458,21 @@ class TimeProfBot(AsyncClient):
         self.database.set_rate(user_id, float(rate))
         resp = "Updated rate to {}".format(rate)
         await self.send_room_message(resp, room_id)
-        ret = True
-        return ret
 
     async def handle_get_rate_message(self, args, room_id):
         user_id = self.database.get_room_user(room_id)
         rate = self.database.get_rate(user_id)
         response = "Current rate is {}".format(rate)
         await self.send_room_message(response, room_id)
-        ret = True
-        return ret
 
     async def handle_get_next_sample_time(self, args, room_id):
         user_id = self.database.get_room_user(room_id)
         next_sample_time = self.database.get_next_sample_time(user_id)
         response = "Next sample scheduled for {}".format(next_sample_time)
         await self.send_room_message(response, room_id)
-        ret = True
-        return ret
 
     async def handle_get_data(self, args, room_id):
         await self.send_data(room_id)
-        ret = True
-        return ret
 
     async def wait_until(self, dt):
         # sleep until the specified datetime
@@ -544,9 +526,9 @@ class TimeProfBot(AsyncClient):
                 arg_str = msg_lowercase[len(command.name):].strip()
                 try:
                     args = command.arg_parser.parse_args(arg_str.split())
-                    if await command(args, room_id):
-                        command_recognized = True
-                        break
+                    await command(args, room_id)
+                    command_recognized = True
+                    break
                 except ArgumentException:
                     logging.info("Parse failed")
                     command_recognized = False
