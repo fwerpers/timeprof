@@ -55,14 +55,6 @@ The data saved at each sample is the timestamp, the string provided by the user 
 Currently maintained at https://github.com/fwerpers/timeprof.
         """
 
-HELP_STR = """Available inputs:
--help - this message
--info - description of the bot
--set rate <rate> - set rate (minutes) of sampling process. Must be an integer
--get rate - get current rate
--get next - get time of next sample
--get data - get a download link for the data
--        """
 # TODO: add ability to get data summary
 # TODO: add ability to get data vis image
 # TODO: user csv package to save the data
@@ -97,42 +89,8 @@ class Command():
             return True
 
     async def __call__(self, msg, room_id):
-        # TODO: make more general by using commented code below
         return await self.func(msg, room_id)
         
-        # Catch command name followed by eventual whitespace
-        # and arbitrary characters
-        #regex = r"^{}( (.*))?".format(self.name)
-        #m = re.match(regex, msg)
-        #if m is None:
-            #return False
-        #elif self.is_simple_command():
-            #if m.group(1) is None:
-                #await self.func(msg, room_id)
-                #return True
-            #else:
-                #return False
-                # TODO: send message that no extra characters are expected except from the command name. Could add an arbitrary number of whitespaces after the base command (and between arguments)
-        #else:
-            #cmd_args = m.group(2)
-            #if cmd_args is None:
-                #return False
-            #else:
-                ## TODO: match with arguments
-                #grouped_args = ["({})".format(arg) for arg in self.args]
-                #arg_regex = " ".join(grouped_args)
-                #re.match(arg_regex, cmd_args) 
-                #return False
-           # 
-       # 
-        #if len(self.args) > 0:
-            #regex = "{} (.*)"
-            #for arg in self.args:
-                #regex = "{} {}".format(regex, arg.regex)
-        #else:
-            #re.match(regex, msg)
-        
-
 class User():
     def __init__(self):
         self.user_id
