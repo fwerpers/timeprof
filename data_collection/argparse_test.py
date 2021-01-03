@@ -15,19 +15,18 @@ def main3():
     print(vars(args))
 
 def main2():
-    parser = NonExitingArgParser(prog="set rate")
+    parser = NonExitingArgParser(prog="set rate", add_help=False)
     parser.add_argument("rate", type=float)
     try:
-        args = parser.parse_args("fasdf")
+        #args = parser.parse_args(["-h", "5"])
+        args = parser.parse_args(["-h", "5"])
     except ArgumentException as e:
         print("parsing failed")
         print(e)
-    parser.print_help()
-    parser.print_usage()
-    print(parser._actions)
-    print(parser._action_groups)
-    print(parser._positionals)
-    print(parser._get_positional_actions())
+    #print(parser._actions)
+    #print(parser._action_groups)
+    #print(parser._positionals)
+    #print(parser._get_positional_actions())
 
 def main():
     parser = argparse.ArgumentParser()

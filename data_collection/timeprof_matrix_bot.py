@@ -79,11 +79,7 @@ class Command():
         self.func = func
         self.args = []
         self.help_str = help_str
-        self.arg_parser = NonExitingArgParser(prog=name)
-
-    #def add_argument(self, name, regex):
-        #arg = Argument(name, regex)
-        #self.args.append(arg)
+        self.arg_parser = NonExitingArgParser(prog=name, add_help=False)
 
     def add_argument(self, name, t):
         self.arg_parser.add_argument(name, type=t)
