@@ -138,7 +138,7 @@ class InfoMessageUserClient(UserClient):
             resp = await self.room_create(is_direct=True, invite=[bot_id])
             logging.info(resp)
             self.bot_room_id = resp.room_id
-        
+
         resp = await self.send_message(self.bot_room_id, "info")
         logging.info(resp)
         await self.sync_and_close()
@@ -155,7 +155,7 @@ async def register_dummy_users():
 async def run_bots(user_client):
     """ This function assumes that a homeserver is running at HOMESERVER_BASE_URL
     and that it's configured with enable_registration set to true
-    
+
     This function is meant to be re-used for different user sequences, defined by the user_client argument
     """
     logging.info("Registering dummy users...")
@@ -179,11 +179,11 @@ async def run_bots(user_client):
     await bot_client.close()
     return user_client.pass_event.is_set()
 
-@pytest.fixture 
-def event_loop(scope="module"): 
-    loop = asyncio.get_event_loop() 
+@pytest.fixture
+def event_loop(scope="module"):
+    loop = asyncio.get_event_loop()
     return loop
-    #yield loop 
+    #yield loop
     #loop.close()
 
 def test_info_message():
@@ -193,7 +193,7 @@ def test_info_message():
     user_client = InfoMessageUserClient(HOMESERVER_BASE_URL, USER_ID, USER_PW, BOT_ID, user_event)
     done = event_loop.run_until_complete(run_bots(user_client))
     logging.info(done)
-    assert done 
+    assert done
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)

@@ -48,7 +48,7 @@ Type 'help' to see available inputs"""
 
 INFO_STR = """
 This is a bot to collect user activity with sampling according to a Poisson process. Every now and then it will ask what you are up to and record it. Reply with a string of whitespace separated words. To see other available input, send 'help'.
-        
+
 The data saved at each sample is the timestamp, the string provided by the user and the currently set rate of the Poisson process.
 
 Currently maintained at https://github.com/fwerpers/timeprof.
@@ -98,7 +98,7 @@ class Command():
     async def __call__(self, msg, room_id):
         # TODO: make more general by using commented code below
         return await self.func(msg, room_id)
-        
+
         # Catch command name followed by eventual whitespace
         # and arbitrary characters
         #regex = r"^{}( (.*))?".format(self.name)
@@ -120,17 +120,17 @@ class Command():
                 ## TODO: match with arguments
                 #grouped_args = ["({})".format(arg) for arg in self.args]
                 #arg_regex = " ".join(grouped_args)
-                #re.match(arg_regex, cmd_args) 
+                #re.match(arg_regex, cmd_args)
                 #return False
-           # 
-       # 
+           #
+       #
         #if len(self.args) > 0:
             #regex = "{} (.*)"
             #for arg in self.args:
                 #regex = "{} {}".format(regex, arg.regex)
         #else:
             #re.match(regex, msg)
-        
+
 
 class User():
     def __init__(self):
@@ -291,7 +291,7 @@ class TimeProfBot(AsyncClient):
 
     def add_commands(self):
         self.commands = [
-            Command("help", self.handle_help_message, "list commands (this message)"),    
+            Command("help", self.handle_help_message, "list commands (this message)"),
             Command("info", self.handle_info_message, "info about the bot"),
             Command("get data", self.handle_get_data, "get a download link for the data"),
             Command("get next", self.handle_get_next_sample_time, "get time of next sample"),
