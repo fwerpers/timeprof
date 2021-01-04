@@ -99,38 +99,6 @@ class Command():
         # TODO: make more general by using commented code below
         return await self.func(msg, room_id)
 
-        # Catch command name followed by eventual whitespace
-        # and arbitrary characters
-        #regex = r"^{}( (.*))?".format(self.name)
-        #m = re.match(regex, msg)
-        #if m is None:
-            #return False
-        #elif self.is_simple_command():
-            #if m.group(1) is None:
-                #await self.func(msg, room_id)
-                #return True
-            #else:
-                #return False
-                # TODO: send message that no extra characters are expected except from the command name. Could add an arbitrary number of whitespaces after the base command (and between arguments)
-        #else:
-            #cmd_args = m.group(2)
-            #if cmd_args is None:
-                #return False
-            #else:
-                ## TODO: match with arguments
-                #grouped_args = ["({})".format(arg) for arg in self.args]
-                #arg_regex = " ".join(grouped_args)
-                #re.match(arg_regex, cmd_args)
-                #return False
-           #
-       #
-        #if len(self.args) > 0:
-            #regex = "{} (.*)"
-            #for arg in self.args:
-                #regex = "{} {}".format(regex, arg.regex)
-        #else:
-            #re.match(regex, msg)
-
 
 class User():
     def __init__(self):
