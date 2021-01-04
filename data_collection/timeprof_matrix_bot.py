@@ -23,6 +23,7 @@ import json
 import copy
 
 from argparse_test import (NonExitingArgParser, ArgumentException)
+from csv_test import (get_csv_context, get_last_csv_context)
 
 HOMESERVER = "https://matrix.org"
 BOT_USER_ID = "@timeprof_bot:matrix.org"
@@ -72,9 +73,6 @@ class Command():
         self.args = []
         self.help_str = help_str
         self.arg_parser = NonExitingArgParser(prog=name, add_help=False)
-
-    def add_argument(self, name, t):
-        self.arg_parser.add_argument(name, type=t)
 
     def add_help_entry(self, help_str):
         self.help_str = help_str
@@ -257,8 +255,12 @@ class TimeProfBot(AsyncClient):
             Command("get rate", self.handle_get_rate_message, "get current rate")
         ]
         set_rate_cmd = Command("set rate", self.handle_set_rate_message, "set rate (minutes) of sampling process")
-        set_rate_cmd.add_argument("rate", float)
+        set_rate_cmd.arg_parser.add_argument("rate", type=float)
         self.commands.append(set_rate_cmd)
+        get_history_cmd = Command("get history", self.handle_get_history, "get activity history")
+        get_history_cmd.arg_parser.add_argument("-i", dest="line", type=int)
+        get_history_cmd.arg_parser.add_argument("-n", dest="size", type=int, default=10)
+        self.commands.append(get_history_cmd)
 
     async def log_joined_rooms(self):
         joined_rooms_resp = await self.joined_rooms()
@@ -427,6 +429,19 @@ class TimeProfBot(AsyncClient):
 
     async def handle_get_data(self, args, room_id):
         await self.send_data(room_id)
+
+    async def handle_get_history(self, args, room_id):
+        user_id = self.database.get_room_user(room_id)
+        user_file_path = self.database.get_user_file_path(user_id)
+        if not args.line:
+            rows = get_last_csv_context(user_file_path, args.size)
+        else:
+            rows = get_csv_context(user_file_path, args.line, args.size)
+        rows = [','.join(row) for row in rows]
+        response = "\n".join(rows)
+        response_head = "ID, TIME, LABEL, RATE"
+        response = "{}\n{}".format(response_head, response)
+        await self.send_room_message(response, room_id)
 
     async def wait_until(self, dt):
         # sleep until the specified datetime
