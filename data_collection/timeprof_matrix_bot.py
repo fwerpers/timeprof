@@ -89,6 +89,7 @@ class Command():
     async def __call__(self, msg, room_id):
         return await self.func(msg, room_id)
 
+
 class User():
     def __init__(self):
         self.user_id
