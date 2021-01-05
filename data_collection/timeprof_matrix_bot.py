@@ -50,7 +50,7 @@ Type 'help' to see available inputs"""
 
 INFO_STR = """
 This is a bot to collect user activity with sampling according to a Poisson process. Every now and then it will ask what you are up to and record it. Reply with a string of whitespace separated words. To see other available input, send 'help'.
-        
+
 The data saved at each sample is the timestamp, the string provided by the user and the currently set rate of the Poisson process.
 
 Currently maintained at https://github.com/fwerpers/timeprof.
@@ -88,7 +88,7 @@ class Command():
 
     async def __call__(self, msg, room_id):
         return await self.func(msg, room_id)
-        
+
 class User():
     def __init__(self):
         self.user_id
@@ -248,7 +248,7 @@ class TimeProfBot(AsyncClient):
 
     def add_commands(self):
         self.commands = [
-            Command("help", self.handle_help_message, "list commands (this message)"),    
+            Command("help", self.handle_help_message, "list commands (this message)"),
             Command("info", self.handle_info_message, "info about the bot"),
             Command("get data", self.handle_get_data, "get a download link for the data"),
             Command("get next", self.handle_get_next_sample_time, "get time of next sample"),
