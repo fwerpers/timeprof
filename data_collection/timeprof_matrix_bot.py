@@ -497,7 +497,7 @@ class TimeProfBot(AsyncClient):
             self.database.save_sample(user_id, time_now, msg)
             self.database.set_user_state(user_id, STATE_NONE)
         else:
-            err_str = "Expected lowercase words, not '{}'".format(msg)
+            err_str = "Activity string '{}' is not valid.".format(msg)
             await self.send_room_message(err_str, room_id)
 
     async def handle_room_switch_message(self, msg, user_id, room_id):
