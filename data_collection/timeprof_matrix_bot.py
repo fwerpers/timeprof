@@ -382,7 +382,7 @@ class TimeProfBot(AsyncClient):
 
     def is_activity_string(self, msg):
         # Match a string with white-space separated lower-case words
-        re_pattern = r"^([a-z]+)(\s[a-z]+)*$"
+        re_pattern = r"^([a-zA-Z0-9_\-/ \t+()#@$\[\]\{\}%<>*?~])+$"
         m = re.match(re_pattern, msg)
         if m is not None:
             return True
