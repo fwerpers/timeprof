@@ -381,13 +381,13 @@ class TimeProfBot(AsyncClient):
         return ret
 
     def is_activity_string(self, msg):
-        ret = False
         # Match a string with white-space separated lower-case words
         re_pattern = r"^([a-z]+)(\s[a-z]+)*$"
         m = re.match(re_pattern, msg)
         if m is not None:
-            ret = True
-        return ret
+            return True
+        else:
+            return False
 
     async def send_help_message(self, room_id):
         # TODO: don't hardcode this
