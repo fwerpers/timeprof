@@ -21,6 +21,7 @@ from datetime import (datetime, timedelta)
 from pathlib import Path
 import json
 import copy
+import argparse
 
 
 HOMESERVER = "https://matrix.org"
@@ -39,6 +40,7 @@ KEY_NEXT_SAMPLE_TIME = "next_sample_time"
 PATH_TO_THIS_DIR = Path(__file__).absolute().parent
 DATA_DIR = PATH_TO_THIS_DIR.joinpath("data")
 USER_STATES_PATH = DATA_DIR.joinpath("user_states.json")
+STORE_PATH = PATH_TO_THIS_DIR.joinpath("store")
 
 JOIN_ATTEMPT_LIMIT = 3
 LEAVE_ROOM_ATTEMPT_LIMIT = 10
@@ -140,22 +142,23 @@ class DataBase():
         self.user_data[user_id][KEY_NEW_ROOM] = room_id
 
     def save_user_states(self):
+        user_data_str = copy.deepcopy(self.user_data)
+        for user_id in user_data_str.keys():
+            logging.info(self.get_next_sample_time(user_id))
+            user_data_str[user_id][KEY_NEXT_SAMPLE_TIME] = self.get_next_sample_time(user_id).isoformat()
         with open(USER_STATES_PATH, 'w') as fp:
-            user_data_str = copy.deepcopy(self.user_data)
-            for user_id in user_data_str.keys():
-                logging.info(self.get_next_sample_time(user_id))
-                user_data_str[user_id][KEY_NEXT_SAMPLE_TIME] = self.get_next_sample_time(user_id).isoformat()
             json.dump(user_data_str, fp)
 
     def load_user_states(self):
         if USER_STATES_PATH.exists():
+            user_data_str = None
             with open(USER_STATES_PATH, 'r') as fp:
                 user_data_str = json.load(fp)
-                self.user_data = copy.deepcopy(user_data_str)
-                for user_id in self.user_data.keys():
-                    self.set_next_sample_time(
-                        user_id,
-                        datetime.fromisoformat(user_data_str[user_id][KEY_NEXT_SAMPLE_TIME]))
+            self.user_data = copy.deepcopy(user_data_str)
+            for user_id in self.user_data.keys():
+                self.set_next_sample_time(
+                    user_id,
+                    datetime.fromisoformat(user_data_str[user_id][KEY_NEXT_SAMPLE_TIME]))
 
     def switch_to_new_room(self, user_id):
         new_room_id = self.user_data.get(user_id).get(KEY_NEW_ROOM)
@@ -236,8 +239,8 @@ class TimeProfBot(AsyncClient):
             homeserver,
             mid,
             ssl=True,
-            device_id="matrix-niotest1235",
-            store_path="./store",
+            device_id="matrix-niotest1337",
+            store_path=STORE_PATH,
             config=client_config
         )
 
@@ -589,13 +592,13 @@ class TimeProfBot(AsyncClient):
             await self.send_room_message("There is no data", room_id)
 
     async def main(self):
-        await self.sync_forever(timeout=10000)
+        await self.sync_forever(timeout=0)
 
-async def main():
+async def main(args):
     pw = os.environ["TIMEPROF_MATRIX_PW"]
     bot = TimeProfBot(HOMESERVER, BOT_USER_ID, pw)
     logging.info("Initialising bot")
-    await bot.init(leave_all_rooms=True)
+    await bot.init(leave_all_rooms=args.leave_all_rooms)
     try:
         await bot.main()
     except:
@@ -609,5 +612,8 @@ async def main():
 
 
 if __name__ == "__main__":
+    arg_parser = argparse.ArgumentParser()
+    arg_parser.add_argument("--leave-all-rooms", action="store_true")
+    args = arg_parser.parse_args()
     logging.basicConfig(level=logging.INFO)
-    asyncio.get_event_loop().run_until_complete(main())
+    asyncio.get_event_loop().run_until_complete(main(args))
