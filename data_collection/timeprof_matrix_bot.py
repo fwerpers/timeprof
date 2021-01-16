@@ -306,7 +306,7 @@ class TimeProfBot(AsyncClient):
                 self.database.save_sample(user_id, new_sample_time, "EMPTY (BOT OFF)")
                 new_sample_time = self.create_next_sample_time(new_sample_time, rate)
         logging.info("Setting next sample time for {} to {}".format(user_id, new_sample_time))
-        self.schedule_next_sample(user_id, new_sample_time)
+        await self.schedule_next_sample(user_id, new_sample_time)
 
     async def collect_user_activity(self, user_id):
         room_id = self.database.get_room(user_id)
@@ -316,9 +316,6 @@ class TimeProfBot(AsyncClient):
             self.database.save_sample(user_id, sample_time, "EMPTY")
         await self.send_room_message("What's up?", room_id)
         self.database.set_user_state(user_id, STATE_ACTIVITY_WAIT)
-        rate = self.database.get_rate(user_id)
-        new_sample_time = self.create_next_sample_time(sample_time, rate)
-        self.schedule_next_sample(user_id, new_sample_time)
 
     async def propose_to_switch_room(self, user_id, room_id):
         resp = "Hello {}, you are already registered. Want to move the conversation to this room?".format(user_id)
@@ -340,7 +337,7 @@ class TimeProfBot(AsyncClient):
             rate = self.database.get_rate(user_id)
             time_now = datetime.now()
             next_sample_time = self.create_next_sample_time(time_now, rate)
-            self.schedule_next_sample(user_id, next_sample_time)
+            await self.schedule_next_sample(user_id, next_sample_time)
 
     async def room_member_callback(self, room, event):
         if event.membership == "leave":
@@ -483,11 +480,18 @@ class TimeProfBot(AsyncClient):
         next_sample_time = prev_sample_time + timedelta(minutes=interval)
         return next_sample_time
 
-    def schedule_next_sample(self, user_id, sample_time):
+    async def schedule_next_sample(self, user_id, sample_time):
         loop = asyncio.get_event_loop()
+
+        rate = self.database.get_rate(user_id)
+        new_sample_time = self.create_next_sample_time(sample_time, rate)
+        await loop.create_task(self.run_at(sample_time, self.schedule_next_sample(user_id, new_sample_time)))
+        logging.info("Scheduled scheduling of next sample time at {}".format(sample_time))
+
         self.database.set_next_sample_time(user_id, sample_time)
+
         loop.create_task(self.run_at(sample_time, self.collect_user_activity(user_id)))
-        logging.info("Scheduled new sample time at {}".format(sample_time))
+        logging.info("Scheduled collection of user activity at {}".format(sample_time))
 
     async def handle_activity_message(self, msg, user_id, room_id):
         if self.is_activity_string(msg):
