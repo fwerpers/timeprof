@@ -144,7 +144,6 @@ class DataBase():
     def save_user_states(self):
         user_data_str = copy.deepcopy(self.user_data)
         for user_id in user_data_str.keys():
-            logging.info(self.get_next_sample_time(user_id))
             user_data_str[user_id][KEY_NEXT_SAMPLE_TIME] = self.get_next_sample_time(user_id).isoformat()
         with open(USER_STATES_PATH, 'w') as fp:
             json.dump(user_data_str, fp)
@@ -154,11 +153,11 @@ class DataBase():
             user_data_str = None
             with open(USER_STATES_PATH, 'r') as fp:
                 user_data_str = json.load(fp)
-            self.user_data = copy.deepcopy(user_data_str)
-            for user_id in self.user_data.keys():
-                self.set_next_sample_time(
-                    user_id,
-                    datetime.fromisoformat(user_data_str[user_id][KEY_NEXT_SAMPLE_TIME]))
+            user_data = copy.deepcopy(user_data_str)
+            for user_id in user_data.keys():
+                next_time_str = user_data_str[user_id][KEY_NEXT_SAMPLE_TIME]
+                user_data[user_id][KEY_NEXT_SAMPLE_TIME] = datetime.fromisoformat(next_time_str)
+            self.user_data = user_data
 
     def switch_to_new_room(self, user_id):
         new_room_id = self.user_data.get(user_id).get(KEY_NEW_ROOM)
