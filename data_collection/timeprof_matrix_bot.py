@@ -149,15 +149,16 @@ class DataBase():
             json.dump(user_data_str, fp)
 
     def load_user_states(self):
-        if USER_STATES_PATH.exists():
-            user_data_str = None
-            with open(USER_STATES_PATH, 'r') as fp:
-                user_data_str = json.load(fp)
-            user_data = copy.deepcopy(user_data_str)
-            for user_id in user_data.keys():
-                next_time_str = user_data_str[user_id][KEY_NEXT_SAMPLE_TIME]
-                user_data[user_id][KEY_NEXT_SAMPLE_TIME] = datetime.fromisoformat(next_time_str)
-            self.user_data = user_data
+        if not USER_STATES_PATH.exists():
+            return
+        user_data_str = None
+        with open(USER_STATES_PATH, 'r') as fp:
+            user_data_str = json.load(fp)
+        user_data = copy.deepcopy(user_data_str)
+        for user_id in user_data.keys():
+            next_time_str = user_data_str[user_id][KEY_NEXT_SAMPLE_TIME]
+            user_data[user_id][KEY_NEXT_SAMPLE_TIME] = datetime.fromisoformat(next_time_str)
+        self.user_data = user_data
 
     def switch_to_new_room(self, user_id):
         new_room_id = self.user_data.get(user_id).get(KEY_NEW_ROOM)
