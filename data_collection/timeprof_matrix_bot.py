@@ -471,24 +471,26 @@ class TimeProfBot(AsyncClient):
         next_sample_time = prev_sample_time + timedelta(minutes=interval)
         return next_sample_time
 
-    async def schedule_next_sample(self, user_id, sample_time):
+    async def ping(self, user_id, sample_time):
         loop = asyncio.get_event_loop()
+
+        if self.database.get_user_state(user_id) == STATE_ACTIVITY_WAIT:
+            loop.create_task(self.send_room_message("Previous sample unanswered, saving placeholder label...", room_id))
+            prev_sample_time = self.database.get_next_sample_time(user_id)
+            self.database.save_sample(user_id, prev_sample_time, "EMPTY")
+            self.database.set_user_state(user_id, STATE_NONE)
+
+        loop.create_task(self.prompt_user_activity(user_id))
 
         rate = self.database.get_rate(user_id)
         new_sample_time = self.create_next_sample_time(sample_time, rate)
-        await loop.create_task(self.run_at(sample_time, self.schedule_next_sample(user_id, new_sample_time)))
-        logging.info("Scheduled scheduling of next sample time at {}".format(sample_time))
+        logging.info("Scheduling next ping at {}".format(new_sample_time))
+        self.database.set_next_sample_time(user_id, new_sample_time)
+        loop.create_task(self.run_at(new_sample_time, self.ping(user_id, new_sample_time)))
 
-        self.database.set_next_sample_time(user_id, sample_time)
-
-        loop.create_task(self.run_at(sample_time, self.prompt_user_activity(user_id, sample_time)))
-        logging.info("Scheduled collection of user activity at {}".format(sample_time))
-
-    async def prompt_user_activity(self, user_id, sample_time):
+    async def prompt_user_activity(self, user_id):
+        logging.info("Sending ping prompt to user {}".format(user_id))
         room_id = self.database.get_room(user_id)
-        if self.database.get_user_state(user_id) == STATE_ACTIVITY_WAIT:
-            await self.send_room_message("Previous sample unanswered, saving placeholder label...", room_id)
-            self.database.save_sample(user_id, sample_time, "EMPTY")
         await self.send_room_message("What's up?", room_id)
         self.database.set_user_state(user_id, STATE_ACTIVITY_WAIT)
 
