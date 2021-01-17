@@ -496,11 +496,11 @@ class TimeProfBot(AsyncClient):
 
     async def handle_activity_message(self, msg, user_id, room_id):
         if self.is_activity_string(msg):
+            sample_time = self.database.get_next_sample_time(user_id)
+            self.database.save_sample(user_id, sample_time, msg)
+            self.database.set_user_state(user_id, STATE_NONE)
             resp = "Cool, I'll remember that >:)"
             await self.send_room_message(resp, room_id)
-            time_now = datetime.now()
-            self.database.save_sample(user_id, time_now, msg)
-            self.database.set_user_state(user_id, STATE_NONE)
         else:
             err_str = "Activity string '{}' is not valid.".format(msg)
             await self.send_room_message(err_str, room_id)
