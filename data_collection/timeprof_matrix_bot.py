@@ -308,7 +308,7 @@ class TimeProfBot(AsyncClient):
         logging.info("Setting next sample time for {} to {}".format(user_id, new_sample_time))
         await self.schedule_next_sample(user_id, new_sample_time)
 
-    async def collect_user_activity(self, user_id, sample_time):
+    async def prompt_user_activity(self, user_id, sample_time):
         room_id = self.database.get_room(user_id)
         if self.database.get_user_state(user_id) == STATE_ACTIVITY_WAIT:
             await self.send_room_message("Previous sample unanswered, saving placeholder label...", room_id)
@@ -489,7 +489,7 @@ class TimeProfBot(AsyncClient):
 
         self.database.set_next_sample_time(user_id, sample_time)
 
-        loop.create_task(self.run_at(sample_time, self.collect_user_activity(user_id, sample_time)))
+        loop.create_task(self.run_at(sample_time, self.prompt_user_activity(user_id, sample_time)))
         logging.info("Scheduled collection of user activity at {}".format(sample_time))
 
     async def handle_activity_message(self, msg, user_id, room_id):
