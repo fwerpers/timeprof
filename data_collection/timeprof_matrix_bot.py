@@ -234,6 +234,7 @@ class TimeProfBot(AsyncClient):
             max_timeouts=0,
             store_sync_tokens=True,
             encryption_enabled=True,
+            request_timeout=0
         )
         super().__init__(
             homeserver,
@@ -592,7 +593,7 @@ class TimeProfBot(AsyncClient):
             await self.send_room_message("There is no data", room_id)
 
     async def main(self):
-        await self.sync_forever(timeout=0)
+        await self.sync_forever()
 
 async def main(args):
     pw = os.environ["TIMEPROF_MATRIX_PW"]
