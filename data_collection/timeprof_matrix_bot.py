@@ -297,14 +297,14 @@ class TimeProfBot(AsyncClient):
         rate = self.database.get_rate(user_id)
         # TODO: do this in a cleaner way. Should next_sample_time ever be None?
         if next_sample_time is None:
-            new_sample_time = self.create_next_sample_time(time_now, rate)
+            new_sample_time = self.draw_next_ping_time(time_now, rate)
         else:
             new_sample_time = next_sample_time
             while new_sample_time <= time_now:
                 time_now = datetime.now()
                 logging.info("Saving placeholder sample")
                 self.database.save_sample(user_id, new_sample_time, "EMPTY (BOT OFF)")
-                new_sample_time = self.create_next_sample_time(new_sample_time, rate)
+                new_sample_time = self.draw_next_ping_time(new_sample_time, rate)
         logging.info("Setting next sample time for {} to {}".format(user_id, new_sample_time))
         await self.schedule_next_sample(user_id, new_sample_time)
 
@@ -327,7 +327,7 @@ class TimeProfBot(AsyncClient):
             await self.send_room_message(WELCOME_STR, room_id)
             rate = self.database.get_rate(user_id)
             time_now = datetime.now()
-            next_sample_time = self.create_next_sample_time(time_now, rate)
+            next_sample_time = self.draw_next_ping_time(time_now, rate)
             await self.schedule_next_sample(user_id, next_sample_time)
 
     async def room_member_callback(self, room, event):
@@ -466,7 +466,7 @@ class TimeProfBot(AsyncClient):
         await self.wait_until(dt)
         return await coro
 
-    def create_next_sample_time(self, prev_sample_time, rate):
+    def draw_next_ping_time(self, prev_sample_time, rate):
         interval = np.random.exponential(scale=rate)
         next_sample_time = prev_sample_time + timedelta(minutes=interval)
         return next_sample_time
@@ -487,7 +487,7 @@ class TimeProfBot(AsyncClient):
         loop = asyncio.get_event_loop()
 
         rate = self.database.get_rate(user_id)
-        new_sample_time = self.create_next_sample_time(sample_time, rate)
+        new_sample_time = self.draw_next_ping_time(sample_time, rate)
         self.database.set_next_sample_time(user_id, new_sample_time)
 
         logging.info("Scheduling next ping at {}".format(new_sample_time))
