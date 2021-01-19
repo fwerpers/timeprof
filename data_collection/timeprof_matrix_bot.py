@@ -481,11 +481,16 @@ class TimeProfBot(AsyncClient):
             self.database.set_user_state(user_id, STATE_NONE)
 
         loop.create_task(self.prompt_user_activity(user_id))
+        schedule_ping(self, user_id, sample_time)
+
+    def schedule_ping(self, user_id, prev_sample_time):
+        loop = asyncio.get_event_loop()
 
         rate = self.database.get_rate(user_id)
         new_sample_time = self.create_next_sample_time(sample_time, rate)
-        logging.info("Scheduling next ping at {}".format(new_sample_time))
         self.database.set_next_sample_time(user_id, new_sample_time)
+
+        logging.info("Scheduling next ping at {}".format(new_sample_time))
         loop.create_task(self.run_at(new_sample_time, self.ping(user_id, new_sample_time)))
 
     async def prompt_user_activity(self, user_id):
