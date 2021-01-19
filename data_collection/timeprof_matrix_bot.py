@@ -292,21 +292,14 @@ class TimeProfBot(AsyncClient):
             self.sync_next_sample_time(user_id)
 
     def sync_next_sample_time(self, user_id):
+        # TODO: Make sure next_sample_time is set on user creation
         next_sample_time = self.database.get_next_sample_time(user_id)
-        time_now = datetime.now()
         rate = self.database.get_rate(user_id)
-        # TODO: do this in a cleaner way. Should next_sample_time ever be None?
-        if next_sample_time is None:
-            new_sample_time = self.draw_next_ping_time(time_now, rate)
-        else:
-            new_sample_time = next_sample_time
-            while new_sample_time <= time_now:
-                time_now = datetime.now()
-                logging.info("Saving placeholder sample")
-                self.database.save_sample(user_id, new_sample_time, "EMPTY (BOT OFF)")
-                new_sample_time = self.draw_next_ping_time(new_sample_time, rate)
-
-        self.schedule_ping(user_id, new_sample_time) # Wrong sample time, fix this!
+        while next_sample_time <= datetime.now():
+            logging.info("Saving placeholder sample")
+            self.database.save_sample(user_id, next_sample_time, "EMPTY (BOT OFF)")
+            next_sample_time = self.draw_next_ping_time(next_sample_time, rate)
+        self.schedule_ping(user_id, next_sample_time)
 
     async def propose_to_switch_room(self, user_id, room_id):
         resp = "Hello {}, you are already registered. Want to move the conversation to this room?".format(user_id)
@@ -324,7 +317,11 @@ class TimeProfBot(AsyncClient):
             await self.propose_to_switch_room(user_id, room_id)
         else:
             self.database.switch_to_new_room(user_id)
-            schedule_ping(self, user_id, datetime.now())
+
+            rate = self.database.get_rate(user_id)
+            new_ping_time = self.draw_next_ping_time(datetime.now(), rate)
+            self.schedule_ping(self, user_id, new_ping_time)
+
             await self.send_room_message(WELCOME_STR, room_id)
 
     async def room_member_callback(self, room, event):
@@ -478,17 +475,16 @@ class TimeProfBot(AsyncClient):
             self.database.set_user_state(user_id, STATE_NONE)
 
         loop.create_task(self.prompt_user_activity(user_id))
-        schedule_ping(self, user_id, sample_time)
-
-    def schedule_ping(self, user_id, prev_sample_time):
-        loop = asyncio.get_event_loop()
 
         rate = self.database.get_rate(user_id)
-        new_sample_time = self.draw_next_ping_time(sample_time, rate)
-        self.database.set_next_sample_time(user_id, new_sample_time)
+        new_ping_time = self.draw_next_ping_time(sample_time, rate)
+        self.schedule_ping(self, user_id, new_ping_time)
 
-        logging.info("Scheduling next ping at {}".format(new_sample_time))
-        loop.create_task(self.run_at(new_sample_time, self.ping(user_id, new_sample_time)))
+    def schedule_ping(self, user_id, ping_time):
+        loop = asyncio.get_event_loop()
+        logging.info("Scheduling next ping at {}".format(ping_time))
+        self.database.set_next_sample_time(user_id, ping_time)
+        loop.create_task(self.run_at(new_sample_time, self.ping(user_id, ping_time)))
 
     async def prompt_user_activity(self, user_id):
         logging.info("Sending ping prompt to user {}".format(user_id))
