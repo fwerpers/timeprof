@@ -305,8 +305,8 @@ class TimeProfBot(AsyncClient):
                 logging.info("Saving placeholder sample")
                 self.database.save_sample(user_id, new_sample_time, "EMPTY (BOT OFF)")
                 new_sample_time = self.draw_next_ping_time(new_sample_time, rate)
-        logging.info("Setting next sample time for {} to {}".format(user_id, new_sample_time))
-        await self.schedule_next_sample(user_id, new_sample_time)
+
+        self.schedule_ping(user_id, new_sample_time) # Wrong sample time, fix this!
 
     async def propose_to_switch_room(self, user_id, room_id):
         resp = "Hello {}, you are already registered. Want to move the conversation to this room?".format(user_id)
@@ -324,11 +324,8 @@ class TimeProfBot(AsyncClient):
             await self.propose_to_switch_room(user_id, room_id)
         else:
             self.database.switch_to_new_room(user_id)
+            schedule_ping(self, user_id, datetime.now())
             await self.send_room_message(WELCOME_STR, room_id)
-            rate = self.database.get_rate(user_id)
-            time_now = datetime.now()
-            next_sample_time = self.draw_next_ping_time(time_now, rate)
-            await self.schedule_next_sample(user_id, next_sample_time)
 
     async def room_member_callback(self, room, event):
         if event.membership == "leave":
@@ -501,7 +498,7 @@ class TimeProfBot(AsyncClient):
 
     async def handle_activity_message(self, msg, user_id, room_id):
         if self.is_activity_string(msg):
-            sample_time = self.database.get_next_sample_time(user_id)
+            sample_time = self.database.get_next_sample_time(user_id) # This could be the wrong sample_time.
             self.database.save_sample(user_id, sample_time, msg)
             self.database.set_user_state(user_id, STATE_NONE)
             resp = "Cool, I'll remember that >:)"
