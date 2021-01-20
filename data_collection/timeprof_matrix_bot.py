@@ -385,13 +385,13 @@ class TimeProfBot(AsyncClient):
         return ret
 
     def is_activity_string(self, msg):
-        ret = False
         # Match a string with white-space separated lower-case words
-        re_pattern = r"^([a-z]+)(\s[a-z]+)*$"
+        re_pattern = r"^([a-zA-Z0-9_\-/ \t+()#@$\[\]\{\}%<>*?~])+$"
         m = re.match(re_pattern, msg)
         if m is not None:
-            ret = True
-        return ret
+            return True
+        else:
+            return False
 
     async def send_help_message(self, room_id):
         # TODO: don't hardcode this
@@ -501,7 +501,7 @@ class TimeProfBot(AsyncClient):
             self.database.save_sample(user_id, time_now, msg)
             self.database.set_user_state(user_id, STATE_NONE)
         else:
-            err_str = "Expected lowercase words, not '{}'".format(msg)
+            err_str = "Activity string '{}' is not valid.".format(msg)
             await self.send_room_message(err_str, room_id)
 
     async def handle_room_switch_message(self, msg, user_id, room_id):
