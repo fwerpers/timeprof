@@ -34,7 +34,7 @@ KEY_STATE = "state"
 KEY_NEW_ROOM = "new_room_id"
 KEY_ROOM = "room_id"
 KEY_RATE = "poisson_process_rate"
-KEY_NEXT_SAMPLE_TIME = "next_sample_time"
+KEY_NEXT_SAMPLE_TIME = "next_ping_time"
 
 PATH_TO_THIS_DIR = Path(__file__).absolute().parent
 DATA_DIR = PATH_TO_THIS_DIR.joinpath("data")
@@ -105,7 +105,7 @@ class User():
         self.user_id
         self.room_id
         self.poisson_process_rate
-        self.next_sample_time
+        self.next_ping_time
 
 
 class DataBase():
@@ -143,8 +143,8 @@ class DataBase():
         with open(USER_STATES_PATH, 'w') as fp:
             user_data_str = copy.deepcopy(self.user_data)
             for user_id in user_data_str.keys():
-                logging.info(self.get_next_sample_time(user_id))
-                user_data_str[user_id][KEY_NEXT_SAMPLE_TIME] = self.get_next_sample_time(user_id).isoformat()
+                logging.info(self.get_next_ping_time(user_id))
+                user_data_str[user_id][KEY_NEXT_SAMPLE_TIME] = self.get_next_ping_time(user_id).isoformat()
             json.dump(user_data_str, fp)
 
     def load_user_states(self):
@@ -153,7 +153,7 @@ class DataBase():
                 user_data_str = json.load(fp)
                 self.user_data = copy.deepcopy(user_data_str)
                 for user_id in self.user_data.keys():
-                    self.set_next_sample_time(
+                    self.set_next_ping_time(
                         user_id,
                         datetime.fromisoformat(user_data_str[user_id][KEY_NEXT_SAMPLE_TIME]))
 
@@ -198,11 +198,11 @@ class DataBase():
         self.user_data[user_id][KEY_RATE] = rate
         self.save_user_states()
 
-    def save_sample(self, user_id, sample_time, label):
+    def save_sample(self, user_id, ping_time, label):
         user_file_path = self.get_user_file_path(user_id)
         with open(user_file_path, 'a') as f:
             # TODO: use time when question was asked instead?
-            timestamp = str(sample_time)
+            timestamp = str(ping_time)
             poisson_process_rate = self.user_data.get(user_id).get(KEY_RATE)
             line_format_str = "{}, {}, {}\n"
             line = line_format_str.format(timestamp,
@@ -211,15 +211,15 @@ class DataBase():
             f.write(line)
         logging.info("Saving data '{}' to {}".format(line, user_file_path))
 
-    def get_next_sample_time(self, user_id):
-        next_sample_time = self.user_data.get(user_id).get(KEY_NEXT_SAMPLE_TIME)
-        assert isinstance(next_sample_time, datetime), "{}".format(type(next_sample_time))
-        return next_sample_time
+    def get_next_ping_time(self, user_id):
+        next_ping_time = self.user_data.get(user_id).get(KEY_NEXT_SAMPLE_TIME)
+        assert isinstance(next_ping_time, datetime), "{}".format(type(next_ping_time))
+        return next_ping_time
 
-    def set_next_sample_time(self, user_id, next_sample_time):
-        assert isinstance(next_sample_time, datetime)
-        self.user_data[user_id][KEY_NEXT_SAMPLE_TIME] = next_sample_time
-        logging.info(type(next_sample_time))
+    def set_next_ping_time(self, user_id, next_ping_time):
+        assert isinstance(next_ping_time, datetime)
+        self.user_data[user_id][KEY_NEXT_SAMPLE_TIME] = next_ping_time
+        logging.info(type(next_ping_time))
         self.save_user_states()
 
 
@@ -244,7 +244,7 @@ class TimeProfBot(AsyncClient):
     async def init(self, leave_all_rooms=False):
         self.database = DataBase()
         self.database.load_user_states()
-        self.sync_next_sample_times()
+        self.sync_next_ping_times()
         resp = await self.login(self.bot_pw)
         logging.info(resp)
         await self.log_joined_rooms()
@@ -262,7 +262,7 @@ class TimeProfBot(AsyncClient):
             Command("help", self.handle_help_message, "list commands (this message)"),
             Command("info", self.handle_info_message, "info about the bot"),
             Command("get data", self.handle_get_data, "get a download link for the data"),
-            Command("get next", self.handle_get_next_sample_time, "get time of next sample"),
+            Command("get next", self.handle_get_next_ping_time, "get time of next sample"),
             Command("get rate", self.handle_get_rate_message, "get current rate")
         ]
         set_rate_cmd = Command("set rate", self.handle_set_rate_message, "set rate (minutes) of sampling process")
@@ -287,19 +287,19 @@ class TimeProfBot(AsyncClient):
                 else:
                     break
 
-    def sync_next_sample_times(self):
+    def sync_next_ping_times(self):
         for user_id in self.database.user_data.keys():
-            self.sync_next_sample_time(user_id)
+            self.sync_next_ping_time(user_id)
 
-    def sync_next_sample_time(self, user_id):
-        # TODO: Make sure next_sample_time is set on user creation
-        next_sample_time = self.database.get_next_sample_time(user_id)
+    def sync_next_ping_time(self, user_id):
+        # TODO: Make sure next_ping_time is set on user creation
+        next_ping_time = self.database.get_next_ping_time(user_id)
         rate = self.database.get_rate(user_id)
-        while next_sample_time <= datetime.now():
+        while next_ping_time <= datetime.now():
             logging.info("Saving placeholder sample")
-            self.database.save_sample(user_id, next_sample_time, "EMPTY (BOT OFF)")
-            next_sample_time = self.draw_next_ping_time(next_sample_time, rate)
-        self.schedule_ping(user_id, next_sample_time)
+            self.database.save_sample(user_id, next_ping_time, "EMPTY (BOT OFF)")
+            next_ping_time = self.draw_next_ping_time(next_ping_time, rate)
+        self.schedule_ping(user_id, next_ping_time)
 
     async def propose_to_switch_room(self, user_id, room_id):
         resp = "Hello {}, you are already registered. Want to move the conversation to this room?".format(user_id)
@@ -434,12 +434,12 @@ class TimeProfBot(AsyncClient):
             ret = True
         return ret
 
-    async def handle_get_next_sample_time(self, msg, room_id):
+    async def handle_get_next_ping_time(self, msg, room_id):
         ret = False
         if msg == "get next":
             user_id = self.database.get_room_user(room_id)
-            next_sample_time = self.database.get_next_sample_time(user_id)
-            response = "Next sample scheduled for {}".format(next_sample_time)
+            next_ping_time = self.database.get_next_ping_time(user_id)
+            response = "Next sample scheduled for {}".format(next_ping_time)
             await self.send_room_message(response, room_id)
             ret = True
         return ret
@@ -460,31 +460,31 @@ class TimeProfBot(AsyncClient):
         await self.wait_until(dt)
         return await coro
 
-    def draw_next_ping_time(self, prev_sample_time, rate):
+    def draw_next_ping_time(self, prev_ping_time, rate):
         interval = np.random.exponential(scale=rate)
-        next_sample_time = prev_sample_time + timedelta(minutes=interval)
-        return next_sample_time
+        next_ping_time = prev_ping_time + timedelta(minutes=interval)
+        return next_ping_time
 
-    async def ping(self, user_id, sample_time):
+    async def ping(self, user_id, ping_time):
         loop = asyncio.get_event_loop()
 
         if self.database.get_user_state(user_id) == STATE_ACTIVITY_WAIT:
             loop.create_task(self.send_room_message("Previous sample unanswered, saving placeholder label...", room_id))
-            prev_sample_time = self.database.get_next_sample_time(user_id)
-            self.database.save_sample(user_id, prev_sample_time, "EMPTY")
+            prev_ping_time = self.database.get_next_ping_time(user_id)
+            self.database.save_sample(user_id, prev_ping_time, "EMPTY")
             self.database.set_user_state(user_id, STATE_NONE)
 
         loop.create_task(self.prompt_user_activity(user_id))
 
         rate = self.database.get_rate(user_id)
-        new_ping_time = self.draw_next_ping_time(sample_time, rate)
+        new_ping_time = self.draw_next_ping_time(ping_time, rate)
         self.schedule_ping(self, user_id, new_ping_time)
 
     def schedule_ping(self, user_id, ping_time):
         loop = asyncio.get_event_loop()
         logging.info("Scheduling next ping at {}".format(ping_time))
-        self.database.set_next_sample_time(user_id, ping_time)
-        loop.create_task(self.run_at(new_sample_time, self.ping(user_id, ping_time)))
+        self.database.set_next_ping_time(user_id, ping_time)
+        loop.create_task(self.run_at(new_ping_time, self.ping(user_id, ping_time)))
 
     async def prompt_user_activity(self, user_id):
         logging.info("Sending ping prompt to user {}".format(user_id))
@@ -494,8 +494,8 @@ class TimeProfBot(AsyncClient):
 
     async def handle_activity_message(self, msg, user_id, room_id):
         if self.is_activity_string(msg):
-            sample_time = self.database.get_next_sample_time(user_id) # This could be the wrong sample_time.
-            self.database.save_sample(user_id, sample_time, msg)
+            ping_time = self.database.get_next_ping_time(user_id) # This could be the wrong ping_time.
+            self.database.save_sample(user_id, ping_time, msg)
             self.database.set_user_state(user_id, STATE_NONE)
             resp = "Cool, I'll remember that >:)"
             await self.send_room_message(resp, room_id)
