@@ -489,8 +489,8 @@ class TimeProfBot(AsyncClient):
     async def prompt_user_activity(self, user_id):
         logging.info("Sending ping prompt to user {}".format(user_id))
         room_id = self.database.get_room(user_id)
-        await self.send_room_message("What's up?", room_id)
         self.database.set_user_state(user_id, STATE_ACTIVITY_WAIT)
+        await self.send_room_message("What's up?", room_id)
 
     async def handle_activity_message(self, msg, user_id, room_id):
         if self.is_activity_string(msg):
